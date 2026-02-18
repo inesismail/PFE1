@@ -45,10 +45,11 @@ export default function CpoPage() {
   const [editingConnection, setEditingConnection] = useState<CpoConnection | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [connectionToDelete, setConnectionToDelete] = useState<CpoConnection | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     actorName: '',
-    baseUrl: 'https://api.wattzhub.com/v1/api',
-    authUrl: 'https://api.wattzhub.com/v1/auth',
+    baseUrl: 'https://beta.cpo.server.wattzhub.com/v1/api',
+    authUrl: 'https://beta.cpo.server.wattzhub.com/v1/api/auth',
     tenant: '',
     authType: 'credentials' as 'credentials' | 'token',
     email: '',
@@ -71,45 +72,73 @@ export default function CpoPage() {
   // Mutations
   const connectMutation = useMutation({
     mutationFn: async () => {
-      // First create the actor if needed
-      let actorId: string;
-      
-      const existingActor = actors?.find((a) => a.name === formData.actorName);
-      if (existingActor) {
-        actorId = existingActor.id;
-      } else {
-        // Get CPO actor type
-        const types = await actorsApi.getTypes();
-        const cpoType = types.find((t) => t.code === 'CPO');
-        if (!cpoType) throw new Error('Type CPO non trouvé');
+      setErrorMessage(null);
 
-        // Create actor
-        const newActor = await actorsApi.create({
-          actorTypeId: cpoType.id,
-          code: formData.actorName.toUpperCase().replace(/\s+/g, '_'),
-          name: formData.actorName,
-        });
-        actorId = newActor.id;
+      // Find the selected actor
+      const selectedActor = actors?.find((a) => a.id === formData.actorName);
+      
+      if (!selectedActor) {
+        throw new Error('Veuillez sélectionner un acteur CPO');
+      }
+      
+      const actorId = selectedActor.id;
+
+      // Validate required fields
+      if (formData.authType === 'credentials') {
+        if (!formData.email || !formData.password) {
+          throw new Error('Email et mot de passe sont requis pour l\'authentification par identifiants');
+        }
+      } else {
+        if (!formData.accessToken) {
+          throw new Error('Token d\'accès requis pour l\'authentification par token');
+        }
       }
 
       // Connect to CPO
-      return cpoApi.connect({
+      const connectData: any = {
         actorId,
         baseUrl: formData.baseUrl,
-        authUrl: formData.authType === 'credentials' ? formData.authUrl : undefined,
-        tenant: formData.authType === 'credentials' ? formData.tenant : undefined,
         authType: formData.authType,
-        email: formData.authType === 'credentials' ? formData.email : undefined,
-        password: formData.authType === 'credentials' ? formData.password : undefined,
-        accessToken: formData.authType === 'token' ? formData.accessToken : undefined,
         fetchIntervalMinutes: formData.fetchIntervalMinutes,
-      });
+      };
+
+      // Only add optional fields if they have values
+      if (formData.authType === 'credentials') {
+        connectData.email = formData.email;
+        connectData.password = formData.password;
+        if (formData.authUrl) connectData.authUrl = formData.authUrl;
+        if (formData.tenant) connectData.tenant = formData.tenant;
+      } else {
+        connectData.accessToken = formData.accessToken;
+      }
+
+      return cpoApi.connect(connectData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cpo-connections'] });
       queryClient.invalidateQueries({ queryKey: ['actors'] });
       setShowForm(false);
       resetForm();
+      setErrorMessage(null);
+    },
+    onError: (error: any) => {
+      let message = 'Erreur inconnue';
+      
+      if (error instanceof Error) {
+        message = error.message;
+      } else if (error?.response?.status === 409) {
+        message = `Conflit: Un acteur existe déjà avec ce nom ou code.`;
+        if (error?.response?.data?.message) {
+          message += ` (${error.response.data.message})`;
+        }
+      } else if (error?.response?.data?.message) {
+        message = error.response.data.message;
+      } else if (error?.message) {
+        message = error.message;
+      }
+      
+      setErrorMessage(message);
+      console.error('Connection error:', error);
     },
   });
 
@@ -204,19 +233,44 @@ export default function CpoPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Input
-                label="Nom de l'acteur"
-                placeholder="Ex: WattzHub Production"
+              {errorMessage && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm text-red-700 font-medium">Erreur lors de la connexion:</p>
+                      <p className="text-sm text-red-600 mt-1 font-mono">{errorMessage}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(errorMessage);
+                      }}
+                      className="text-red-600 hover:text-red-700 text-xs whitespace-nowrap"
+                    >
+                      Copier
+                    </button>
+                  </div>
+                </div>
+              )}
+              <Select
+                label="Acteur CPO"
+                placeholder="Sélectionner un acteur..."
                 value={formData.actorName}
                 onChange={(e) => setFormData({ ...formData, actorName: e.target.value })}
+                options={
+                  actors?.map((actor) => ({
+                    value: actor.id,
+                    label: actor.name,
+                  })) || []
+                }
+                helperText={!actors || actors.length === 0 ? '❌ Créez d\'abord un acteur CPO dans la page Acteurs' : undefined}
               />
 
               <Input
                 label="URL de l'API"
-                placeholder="https://api.wattzhub.com/v1/api"
+                placeholder="https://beta.cpo.server.wattzhub.com/v1"
                 value={formData.baseUrl}
                 onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
-                helperText="URL de base pour les appels API (ex: /v1/api)"
+                helperText="URL de base pour les appels API (ex: https://beta.cpo.server.wattzhub.com/v1)"
               />
 
               <Select
@@ -238,10 +292,10 @@ export default function CpoPage() {
                 <>
                   <Input
                     label="URL d'authentification"
-                    placeholder="https://api.wattzhub.com/v1/auth"
+                    placeholder="https://beta.cpo.server.wattzhub.com/v1/api/auth"
                     value={formData.authUrl}
                     onChange={(e) => setFormData({ ...formData, authUrl: e.target.value })}
-                    helperText="URL pour l'authentification (ex: /v1/auth)"
+                    helperText="URL pour l'authentification (ex: https://beta.cpo.server.wattzhub.com/v1/api/auth)"
                   />
                   <Input
                     label="Tenant"
@@ -297,7 +351,7 @@ export default function CpoPage() {
               <Button
                 onClick={() => connectMutation.mutate()}
                 isLoading={connectMutation.isPending}
-                disabled={!formData.actorName}
+                disabled={!formData.actorName || !actors || actors.length === 0}
               >
                 <Plug className="h-4 w-4 mr-2" />
                 Connecter

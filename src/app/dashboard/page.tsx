@@ -308,16 +308,16 @@ export default function DashboardPage() {
           description="Vue d'ensemble du système Flexee - Gestion intelligente des signaux EDF"
         />
 
-        <div className="p-4 md:p-6 lg:p-8 space-y-6 lg:space-y-8 max-w-[1600px] mx-auto">
+        <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
           {/* Hero Stats Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* System Health Card */}
-            <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-0 shadow-xl overflow-hidden relative">
-              <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
+            <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-0 shadow-lg hover:shadow-xl transition-all overflow-hidden relative group">
+              <div className="absolute inset-0 bg-grid-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
               <CardContent className="pt-6 relative">
                 <div className="flex flex-col items-center text-center">
                   <div className="relative">
-                    <div className="w-28 h-28 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center ring-4 ring-white/10">
+                    <div className="w-28 h-28 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center ring-4 ring-white/10 group-hover:ring-white/20 transition-all">
                       <div className="text-center">
                         <span className="text-4xl font-bold">{healthScore}</span>
                         <span className="text-2xl">%</span>
@@ -333,7 +333,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                   </div>
-                  <p className="mt-5 text-xl font-bold opacity-95">Santé Système</p>
+                  <p className="mt-5 text-lg font-bold opacity-95">Santé Système</p>
                   <p className="text-sm opacity-80 mt-1">
                     {healthScore >= 70
                       ? 'Excellent état'
@@ -350,14 +350,14 @@ export default function DashboardPage() {
             </Card>
 
             {/* Key Metrics */}
-            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <StatCard
                 title="Connexions CPO"
                 value={activeConnections}
                 total={totalConnections}
                 icon={Plug}
                 color="blue"
-                href="/cpo"
+                href="/connections"
                 status={activeConnections === totalConnections && totalConnections > 0 ? 'success' : totalConnections === 0 ? 'muted' : 'warning'}
                 statusText={
                   activeConnections === totalConnections && totalConnections > 0
@@ -466,7 +466,7 @@ export default function DashboardPage() {
                     <CardTitle>Cycles de Récupération Actifs</CardTitle>
                   </div>
                   <Button variant="ghost" size="sm" asChild>
-                    <Link href="/cpo" className="gap-1.5">
+                    <Link href="/connections" className="gap-1.5">
                       Voir tout <ArrowRight className="h-4 w-4" />
                     </Link>
                   </Button>
@@ -528,7 +528,7 @@ export default function DashboardPage() {
                     </div>
                     <p className="text-muted-foreground mb-3">Aucun cycle de récupération actif</p>
                     <Button variant="outline" size="sm" asChild>
-                      <Link href="/cpo" className="gap-1.5">
+                      <Link href="/connections" className="gap-1.5">
                         Configurer une connexion CPO <ArrowRight className="h-4 w-4" />
                       </Link>
                     </Button>
@@ -557,10 +557,10 @@ export default function DashboardPage() {
                     color="blue"
                   />
                   <QuickActionLink
-                    href="/cpo"
+                    href="/connections"
                     icon={Plug}
-                    title="Connexions CPO"
-                    description="WattzHub intégration"
+                    title="Connexions"
+                    description="CPO & DSO"
                     color="purple"
                   />
                   <QuickActionLink
@@ -598,7 +598,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <Button asChild className="gap-2">
-                  <Link href="/cpo">
+                  <Link href="/connections">
                     <Plug className="h-4 w-4" />
                     Nouvelle Connexion
                   </Link>
@@ -699,7 +699,7 @@ export default function DashboardPage() {
                               Aucune connexion CPO configurée
                             </p>
                             <Button variant="outline" size="sm" asChild>
-                              <Link href="/cpo" className="gap-1.5">
+                              <Link href="/connections" className="gap-1.5">
                                 Créer votre première connexion{' '}
                                 <ArrowRight className="h-4 w-4" />
                               </Link>

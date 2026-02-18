@@ -1,30 +1,141 @@
-import axios, { AxiosError, AxiosInstance } from 'axios';
-
-// API base URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-
-// Create axios instance
-const api: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 30000,
-});
-
-// Response interceptor for error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    console.error('API Error:', error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+import { apiClient } from './api-client';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+// WattzHub CPO API Types
+export interface Connector {
+  id: string;
+  connectorId: number;
+  type: string;
+  maxPower?: number;
+  voltage?: number;
+  amperage?: number;
+  tariffId?: string;
+}
+
+export interface ChargingStationConnector {
+  id: string;
+  connectorId: number;
+  standard: string;
+  format: string;
+  powerType: string;
+  maxElectricPower?: number;
+  tariffIds?: string[];
+}
+
+export interface ChargingStation {
+  id: string;
+  chargePointId?: string;
+  ocppProtocol?: string;
+  ocppVersion?: string;
+  chargeBoxSerialNumber?: string;
+  model?: string;
+  vendor?: string;
+  firmwareVersion?: string;
+  status?: string;
+  statusLastUpdatedOn?: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  connectors?: ChargingStationConnector[];
+}
+
+export interface Transaction {
+  id: string;
+  chargeBoxId?: string;
+  connectorId?: number;
+  idTag?: string;
+  startTimestamp: string;
+  startValue: number;
+  stopTimestamp?: string;
+  stopValue?: number;
+  status?: string;
+  meterValues?: MeterValue[];
+}
+
+export interface MeterValue {
+  timestamp: string;
+  sampledValues: {
+    value: string;
+    measurand?: string;
+    unit?: string;
+  }[];
+}
+
+export interface User {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+  createdOn?: string;
+  lastChangedOn?: string;
+}
+
+export interface Tag {
+  id: string;
+  idToken?: string;
+  type?: string;
+  visualID?: string;
+  issuer?: string;
+  active?: boolean;
+  createdOn?: string;
+  lastChangedOn?: string;
+}
+
+export interface Site {
+  id: string;
+  name?: string;
+  address?: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  chargingStations?: string[];
+}
+
+export interface SiteArea {
+  id: string;
+  name?: string;
+  siteID?: string;
+  address?: string;
+  chargingStations?: string[];
+}
+
+export interface Company {
+  id: string;
+  name?: string;
+  address?: string;
+  logo?: string;
+}
+
+export interface Asset {
+  id: string;
+  name?: string;
+  assetType?: string;
+  siteAreaID?: string;
+  connectorID?: string;
+  consumptions?: AssetConsumption[];
+}
+
+export interface AssetConsumption {
+  id?: string;
+  timestamp?: string;
+  value?: number;
+  unit?: string;
+}
+
+export interface ApiResponse<T> {
+  data?: T;
+  status?: number;
+  message?: string;
+}
+
+// Local API Types
 export interface ActorType {
   id: string;
   code: string;
@@ -55,7 +166,6 @@ export interface Implementation {
   };
 }
 
-// Plugin metadata from PluginRegistry (available implementations)
 export interface PluginMetadata {
   id: string;
   type: string;
@@ -101,7 +211,7 @@ export interface EdfRegion {
   };
 }
 
-export interface Site {
+export interface LocalSite {
   id: string;
   externalId: string;
   name: string;
@@ -117,6 +227,9 @@ export interface Site {
   cpoConnection: CpoConnection;
   latestSignal?: Signal;
   hasEdfPlugin?: boolean;
+  manualOverrideLimitKw?: number | null;
+  manualOverrideUntil?: string | null;
+  manualOverrideReason?: string | null;
 }
 
 export interface Signal {
@@ -140,7 +253,13 @@ export interface ProcessingStatus {
 }
 
 export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
-export type LogSource = 'CpoConnection' | 'SignalProcessor' | 'EdfSignal' | 'SiteLimit' | 'System' | 'Plugin';
+export type LogSource =
+  | 'CpoConnection'
+  | 'SignalProcessor'
+  | 'EdfSignal'
+  | 'SiteLimit'
+  | 'System'
+  | 'Plugin';
 
 export interface SystemLog {
   id: string;
@@ -184,40 +303,101 @@ export interface LogsStats {
 }
 
 // ============================================================================
-// ACTORS API
+// DSO Connection Types (✅ PATCHED)
 // ============================================================================
 
-export const actorsApi = {
-  getTypes: () => api.get<ActorType[]>('/actors/types').then((r) => r.data),
-  
-  getAll: (type?: string) => 
-    api.get<Actor[]>('/actors', { params: type ? { type } : {} }).then((r) => r.data),
-  
-  getById: (id: string) => api.get<Actor>(`/actors/${id}`).then((r) => r.data),
-  
-  create: (data: { actorTypeId: string; code: string; name: string }) =>
-    api.post<Actor>('/actors', data).then((r) => r.data),
-  
-  update: (id: string, data: Partial<Actor>) =>
-    api.put<Actor>(`/actors/${id}`, data).then((r) => r.data),
-  
-  delete: (id: string) => api.delete(`/actors/${id}`),
-  
-  getImplementations: (id: string) =>
-    api.get<ActorImplementation[]>(`/actors/${id}/implementations`).then((r) => r.data),
-  
-  getAvailableImplementations: (id: string) =>
-    api.get(`/actors/${id}/implementations/available`).then((r) => r.data),
-  
-  enableImplementation: (id: string, implementationCode: string, config?: Record<string, unknown>) =>
-    api.post(`/actors/${id}/implementations`, { implementationCode, config }).then((r) => r.data),
-  
-  disableImplementation: (id: string, code: string) =>
-    api.delete(`/actors/${id}/implementations/${code}`),
+export interface DsoConnection {
+  id: string;
+  label?: string;
+  baseUrl: string;
+  authEmail: string;
+  authPassword?: string;
+
+  // ✅ AJOUTÉS POUR TON UI
+  tariffUrl?: string | null;
+  energyUrl?: string | null;
+  isActive?: boolean;
+
+  createdAt: string;
+  updatedAt: string;
+  lastSyncAt?: string;
+  siteLinks?: SiteLink[];
+}
+
+export interface SiteLink {
+  id: string;
+  siteId: string;
+  dsoConnectionId: string;
+  dsoSiteRef: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  energySnapshots?: EnergySnapshot[];
+  dsoConnection?: DsoConnection;
+}
+
+export interface EnergySnapshot {
+  id: string;
+  siteLinkId: string;
+  energieKw: number;
+  tarif: number;
+  signal: number;
+  congestionLevel?: number;
+  timestamp: string;
+}
+
+// ✅ Inputs typés (pour éviter l'erreur tariffUrl/energyUrl)
+export type CreateDsoConnectionInput = {
+  label?: string;
+  baseUrl: string;
+  authEmail: string;
+  authPassword: string;
+  tariffUrl?: string | null;
+  energyUrl?: string | null;
+};
+
+export type UpdateDsoConnectionInput = Partial<CreateDsoConnectionInput> & {
+  isActive?: boolean;
 };
 
 // ============================================================================
-// CPO CONNECTIONS API
+// ACTORS API (Local Backend)
+// ============================================================================
+
+export const actorsApi = {
+  getTypes: () => apiClient.get<ActorType[]>('/actors/types'),
+
+  getAll: (type?: string) =>
+    apiClient.get<Actor[]>(`/actors${type ? `?type=${type}` : ''}`),
+
+  getById: (id: string) => apiClient.get<Actor>(`/actors/${id}`),
+
+  create: (data: { actorTypeId: string; code: string; name: string }) =>
+    apiClient.post<Actor>('/actors', data),
+
+  update: (id: string, data: Partial<Actor>) =>
+    apiClient.put<Actor>(`/actors/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/actors/${id}`),
+
+  getImplementations: (id: string) =>
+    apiClient.get<ActorImplementation[]>(`/actors/${id}/implementations`),
+
+  getAvailableImplementations: (id: string) =>
+    apiClient.get(`/actors/${id}/implementations/available`),
+
+  enableImplementation: (
+    id: string,
+    implementationCode: string,
+    config?: Record<string, unknown>
+  ) => apiClient.post(`/actors/${id}/implementations`, { implementationCode, config }),
+
+  disableImplementation: (id: string, code: string) =>
+    apiClient.delete(`/actors/${id}/implementations/${code}`),
+};
+
+// ============================================================================
+// CPO CONNECTIONS API (Local Backend)
 // ============================================================================
 
 export const cpoApi = {
@@ -231,123 +411,387 @@ export const cpoApi = {
     password?: string;
     accessToken?: string;
     fetchIntervalMinutes?: number;
-  }) => api.post<CpoConnection>('/cpo-connections/connect', data).then((r) => r.data),
-  
-  getAll: () => api.get<CpoConnection[]>('/cpo-connections').then((r) => r.data),
-  
-  getById: (id: string) => api.get<CpoConnection>(`/cpo-connections/${id}`).then((r) => r.data),
-  
+  }) => apiClient.post<CpoConnection>('/cpo-connections/connect', data),
+
+  getAll: () => apiClient.get<CpoConnection[]>('/cpo-connections'),
+
+  getById: (id: string) => apiClient.get<CpoConnection>(`/cpo-connections/${id}`),
+
   update: (id: string, data: Partial<CpoConnection>) =>
-    api.put<CpoConnection>(`/cpo-connections/${id}`, data).then((r) => r.data),
-  
-  disconnect: (id: string) => api.post(`/cpo-connections/${id}/disconnect`),
-  
-  delete: (id: string) => api.delete(`/cpo-connections/${id}`),
-  
-  syncSites: (id: string) => api.post(`/cpo-connections/${id}/sync-sites`).then((r) => r.data),
-  
+    apiClient.put<CpoConnection>(`/cpo-connections/${id}`, data),
+
+  disconnect: (id: string) => apiClient.post(`/cpo-connections/${id}/disconnect`),
+
+  delete: (id: string) => apiClient.delete(`/cpo-connections/${id}`),
+
+  syncSites: (id: string) => apiClient.post(`/cpo-connections/${id}/sync-sites`),
+
   updateFetchInterval: (id: string, fetchIntervalMinutes: number) =>
-    api.put(`/cpo-connections/${id}/fetch-interval`, { fetchIntervalMinutes }).then((r) => r.data),
-  
+    apiClient.put(`/cpo-connections/${id}/fetch-interval`, { fetchIntervalMinutes }),
+
   updateFetchEnabled: (id: string, fetchEnabled: boolean) =>
-    api.put(`/cpo-connections/${id}/fetch-enabled`, { fetchEnabled }).then((r) => r.data),
+    apiClient.put(`/cpo-connections/${id}/fetch-enabled`, { fetchEnabled }),
 };
 
 // ============================================================================
-// SITES API
+// LOCAL SITES API (Local Backend)
 // ============================================================================
 
 export const sitesApi = {
   getAll: (connectionId?: string) =>
-    api.get<Site[]>('/sites', { params: connectionId ? { connectionId } : {} }).then((r) => r.data),
-  
-  getWithStatus: () => api.get<Site[]>('/sites/with-status').then((r) => r.data),
-  
-  getById: (id: string) => api.get<Site>(`/sites/${id}`).then((r) => r.data),
-  
-  update: (id: string, data: Partial<Site>) =>
-    api.put<Site>(`/sites/${id}`, data).then((r) => r.data),
-  
+    apiClient.get<LocalSite[]>(`/sites${connectionId ? `?connectionId=${connectionId}` : ''}`),
+
+  getWithStatus: () => apiClient.get<LocalSite[]>('/sites/with-status'),
+
+  getById: (id: string) => apiClient.get<LocalSite>(`/sites/${id}`),
+
+  update: (id: string, data: Partial<LocalSite>) => apiClient.put<LocalSite>(`/sites/${id}`, data),
+
   assignRegion: (id: string, edfRegionId: string, reducedLimitKw?: number) =>
-    api.post(`/sites/${id}/assign-region`, { edfRegionId, reducedLimitKw }).then((r) => r.data),
-  
-  unassignRegion: (id: string) => api.post(`/sites/${id}/unassign-region`),
-  
-  setLimit: (id: string, limitKw: number) =>
-    api.post(`/sites/${id}/set-limit`, { limitKw }).then((r) => r.data),
+    apiClient.post(`/sites/${id}/assign-region`, { edfRegionId, reducedLimitKw }),
+
+  unassignRegion: (id: string) => apiClient.post(`/sites/${id}/unassign-region`),
+
+  setLimit: (id: string, limitKw: number) => apiClient.post(`/sites/${id}/set-limit`, { limitKw }),
+
+  setOverride: (id: string, limitKw: number, durationMinutes?: number, reason?: string) => {
+    const payload: any = { limitKw };
+    if (durationMinutes && durationMinutes > 0) payload.durationMinutes = durationMinutes;
+    if (reason && reason.trim()) payload.reason = reason;
+    return apiClient.post(`/sites/${id}/override`, payload);
+  },
+
+  clearOverride: (id: string) => apiClient.delete(`/sites/${id}/override`),
+
+  getOverride: (id: string) => apiClient.get(`/sites/${id}/override`),
 };
 
 // ============================================================================
-// EDF REGIONS API
+// EDF REGIONS API (Local Backend)
 // ============================================================================
 
 export const regionsApi = {
-  getAll: () => api.get<EdfRegion[]>('/edf-regions').then((r) => r.data),
-  
-  getById: (id: string) => api.get<EdfRegion>(`/edf-regions/${id}`).then((r) => r.data),
-  
+  getAll: () => apiClient.get<EdfRegion[]>('/edf-regions'),
+
+  getById: (id: string) => apiClient.get<EdfRegion>(`/edf-regions/${id}`),
+
   create: (data: { code: string; name: string; apiEndpoint: string; datasetId: string }) =>
-    api.post<EdfRegion>('/edf-regions', data).then((r) => r.data),
-  
+    apiClient.post<EdfRegion>('/edf-regions', data),
+
   update: (id: string, data: Partial<EdfRegion>) =>
-    api.put<EdfRegion>(`/edf-regions/${id}`, data).then((r) => r.data),
-  
-  delete: (id: string) => api.delete(`/edf-regions/${id}`),
-  
-  seed: () => api.post('/edf-regions/seed').then((r) => r.data),
+    apiClient.put<EdfRegion>(`/edf-regions/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/edf-regions/${id}`),
+
+  seed: () => apiClient.post('/edf-regions/seed'),
 };
 
 // ============================================================================
-// EDF SIGNALS API
+// EDF SIGNALS API (Local Backend)
 // ============================================================================
 
 export const signalsApi = {
-  fetchAll: () => api.post('/edf-signals/fetch').then((r) => r.data),
-  
-  getLatest: () => api.get<Record<string, Signal>>('/edf-signals/latest').then((r) => r.data),
-  
-  getByRegion: (code: string) => api.get<Signal>(`/edf-signals/region/${code}`).then((r) => r.data),
-  
+  fetchAll: () => apiClient.post('/edf-signals/fetch'),
+
+  getLatest: () => apiClient.get<Record<string, Signal>>('/edf-signals/latest'),
+
+  getByRegion: (code: string) => apiClient.get<Signal>(`/edf-signals/region/${code}`),
+
   getCurrentByRegion: (code: string) =>
-    api.get<Signal>(`/edf-signals/region/${code}/current`).then((r) => r.data),
-  
+    apiClient.get<Signal>(`/edf-signals/region/${code}/current`),
+
   getHistory: (code: string, hours?: number) =>
-    api.get<Signal[]>(`/edf-signals/region/${code}/history`, { params: { hours } }).then((r) => r.data),
-  
+    apiClient.get<Signal[]>(`/edf-signals/region/${code}/history${hours ? `?hours=${hours}` : ''}`),
+
   getStats: (code: string, hours?: number) =>
-    api.get(`/edf-signals/region/${code}/stats`, { params: { hours } }).then((r) => r.data),
+    apiClient.get(`/edf-signals/region/${code}/stats${hours ? `?hours=${hours}` : ''}`),
 };
 
 // ============================================================================
-// SIGNAL PROCESSOR API
+// SIGNAL PROCESSOR API (Local Backend)
 // ============================================================================
 
 export const processorApi = {
-  getStatus: () => api.get<ProcessingStatus[]>('/signal-processor/status').then((r) => r.data),
-  
-  trigger: (connectionId: string) =>
-    api.post(`/signal-processor/trigger/${connectionId}`).then((r) => r.data),
-  
+  getStatus: () => apiClient.get<ProcessingStatus[]>('/signal-processor/status'),
+
+  trigger: (connectionId: string) => apiClient.post(`/signal-processor/trigger/${connectionId}`),
+
   updateInterval: (connectionId: string, intervalMinutes: number) =>
-    api.put(`/signal-processor/${connectionId}/interval`, { intervalMinutes }).then((r) => r.data),
-  
+    apiClient.put(`/signal-processor/${connectionId}/interval`, { intervalMinutes }),
+
   setEnabled: (connectionId: string, enabled: boolean) =>
-    api.put(`/signal-processor/${connectionId}/enabled`, { enabled }).then((r) => r.data),
+    apiClient.put(`/signal-processor/${connectionId}/enabled`, { enabled }),
 };
 
 // ============================================================================
-// LOGS API
+// LOGS API (Local Backend)
 // ============================================================================
 
 export const logsApi = {
-  getAll: (params?: LogsQueryParams) =>
-    api.get<LogsResponse>('/logs', { params }).then((r) => r.data),
-  
-  getStats: (hours?: number) =>
-    api.get<LogsStats>('/logs/stats', { params: { hours } }).then((r) => r.data),
-  
+  getAll: (params?: LogsQueryParams) => apiClient.get<LogsResponse>('/logs'),
+
+  getStats: (hours?: number) => apiClient.get<LogsStats>(`/logs/stats${hours ? `?hours=${hours}` : ''}`),
+
   cleanup: (daysToKeep?: number) =>
-    api.delete('/logs/cleanup', { params: { daysToKeep } }).then((r) => r.data),
+    apiClient.delete(`/logs/cleanup${daysToKeep ? `?daysToKeep=${daysToKeep}` : ''}`),
 };
 
-export default api;
+// ============================================================================
+// WATTZHUB CPO API (External API)
+// ============================================================================
+
+export const chargingStationsApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<ChargingStation[]>(
+      `/cpo/charging-stations${
+        skip || limit
+          ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}`
+          : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<ChargingStation>(`/cpo/charging-stations/${id}`),
+
+  getTransactions: (id: string) => apiClient.get<Transaction[]>(`/cpo/charging-stations/${id}/transactions`),
+
+  getStatus: (id: string) => apiClient.get(`/cpo/charging-stations/${id}/status`),
+
+  reset: (id: string) => apiClient.put(`/cpo/charging-stations/${id}/reset`, {}),
+
+  clearCache: (id: string) => apiClient.put(`/cpo/charging-stations/${id}/cache/clear`, {}),
+
+  remoteStart: (id: string, connectorId: number, idTag?: string) =>
+    apiClient.put(`/cpo/charging-stations/${id}/remote/start`, { connectorId, idTag }),
+
+  remoteStop: (id: string, transactionId: number) =>
+    apiClient.put(`/cpo/charging-stations/${id}/remote/stop`, { transactionId }),
+
+  unlockConnector: (id: string, connectorId: number) =>
+    apiClient.put(`/cpo/charging-stations/${id}/connectors/${connectorId}/unlock`, {}),
+
+  updateAvailability: (id: string, availability: string) =>
+    apiClient.put(`/cpo/charging-stations/${id}/availability/change`, { availability }),
+
+  setPowerLimit: (id: string, limit: number) =>
+    apiClient.put(`/cpo/charging-stations/${id}/power/limit`, { limit }),
+
+  setParameters: (id: string, parameters: Record<string, string>) =>
+    apiClient.put(`/cpo/charging-stations/${id}/parameters`, parameters),
+};
+
+export const transactionsApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<Transaction[]>(
+      `/cpo/transactions${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<Transaction>(`/cpo/transactions/${id}`),
+
+  getCompleted: (skip?: number, limit?: number) =>
+    apiClient.get<Transaction[]>(
+      `/cpo/transactions/status/completed${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getActive: (skip?: number, limit?: number) =>
+    apiClient.get<Transaction[]>(
+      `/cpo/transactions/status/active${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getByChargingStation: (stationId: string) =>
+    apiClient.get<Transaction[]>(`/cpo/charging-stations/${stationId}/transactions`),
+
+  stop: (id: string) => apiClient.put(`/cpo/transactions/${id}/stop`, {}),
+
+  softStop: (id: string) => apiClient.put(`/cpo/transactions/${id}/soft-stop`, {}),
+
+  getConsumptions: (id: string) => apiClient.get<MeterValue[]>(`/cpo/transactions/${id}/consumptions`),
+
+  exportToOcpiCdr: (id: string) => apiClient.post(`/cpo/transactions/${id}/ocpi/cdr`, {}),
+};
+
+export const usersApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<User[]>(
+      `/cpo/users${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<User>(`/cpo/users/${id}`),
+
+  create: (data: Partial<User>) => apiClient.post<User>('/cpo/users', data),
+
+  update: (id: string, data: Partial<User>) => apiClient.put<User>(`/cpo/users/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/users/${id}`),
+
+  getDefaultCarTag: (id: string) => apiClient.get(`/cpo/users/${id}/default-car-tag`),
+
+  getSites: (id: string) => apiClient.get<Site[]>(`/cpo/users/${id}/sites`),
+
+  assignSite: (id: string, siteId: string) => apiClient.post(`/cpo/users/${id}/sites`, { siteId }),
+
+  setAdminRole: (id: string, siteId: string) =>
+    apiClient.put(`/cpo/users/${id}/sites/admin`, { siteId }),
+};
+
+export const tagsApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<Tag[]>(
+      `/cpo/tags${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<Tag>(`/cpo/tags/${id}`),
+
+  create: (data: Partial<Tag>) => apiClient.post<Tag>('/cpo/tags', data),
+
+  update: (id: string, data: Partial<Tag>) => apiClient.put<Tag>(`/cpo/tags/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/tags/${id}`),
+
+  assignToUser: (id: string, userId: string) => apiClient.put(`/cpo/tags/${id}/assign`, { userId }),
+
+  unassignFromUser: (id: string) => apiClient.put(`/cpo/tags/${id}/unassign`, {}),
+};
+
+export const sitesWattzApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<Site[]>(
+      `/cpo/sites${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<Site>(`/cpo/sites/${id}`),
+
+  create: (data: Partial<Site>) => apiClient.post<Site>('/cpo/sites', data),
+
+  update: (id: string, data: Partial<Site>) => apiClient.put<Site>(`/cpo/sites/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/sites/${id}`),
+
+  assignChargingStation: (id: string, stationId: string) =>
+    apiClient.put(`/cpo/sites/${id}/assign`, { stationId }),
+
+  unassignChargingStation: (id: string, stationId: string) =>
+    apiClient.put(`/cpo/sites/${id}/unassign`, { stationId }),
+};
+
+export const siteAreasApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<SiteArea[]>(
+      `/cpo/site-areas${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<SiteArea>(`/cpo/site-areas/${id}`),
+
+  create: (data: Partial<SiteArea>) => apiClient.post<SiteArea>('/cpo/site-areas', data),
+
+  update: (id: string, data: Partial<SiteArea>) =>
+    apiClient.put<SiteArea>(`/cpo/site-areas/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/site-areas/${id}`),
+
+  getConsumptions: (id: string) => apiClient.get(`/cpo/site-areas/${id}/consumptions`),
+
+  assignChargingStation: (id: string, stationId: string) =>
+    apiClient.put(`/cpo/site-areas/${id}/charging-stations/assign`, { stationId }),
+
+  unassignChargingStation: (id: string, stationId: string) =>
+    apiClient.put(`/cpo/site-areas/${id}/charging-stations/unassign`, { stationId }),
+};
+
+export const assetsApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<Asset[]>(
+      `/cpo/assets${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<Asset>(`/cpo/assets/${id}`),
+
+  create: (data: Partial<Asset>) => apiClient.post<Asset>('/cpo/assets', data),
+
+  update: (id: string, data: Partial<Asset>) => apiClient.put<Asset>(`/cpo/assets/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/assets/${id}`),
+
+  getConsumptions: (id: string) => apiClient.get<AssetConsumption[]>(`/cpo/assets/${id}/consumptions`),
+
+  addConsumption: (id: string, consumption: AssetConsumption) =>
+    apiClient.post(`/cpo/assets/${id}/consumptions`, consumption),
+};
+
+export const companiesApi = {
+  getAll: (skip?: number, limit?: number) =>
+    apiClient.get<Company[]>(
+      `/cpo/companies${
+        skip || limit ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}` : ''
+      }`
+    ),
+
+  getById: (id: string) => apiClient.get<Company>(`/cpo/companies/${id}`),
+
+  create: (data: Partial<Company>) => apiClient.post<Company>('/cpo/companies', data),
+
+  update: (id: string, data: Partial<Company>) =>
+    apiClient.put<Company>(`/cpo/companies/${id}`, data),
+
+  delete: (id: string) => apiClient.delete(`/cpo/companies/${id}`),
+};
+
+// ============================================================================
+// DSO CONNECTIONS API (Local Backend) ✅ FINAL PATCHED
+// ============================================================================
+
+export const dsoApi = {
+  // DSO Connection endpoints
+  getConnections: () => apiClient.get<DsoConnection[]>('/dso-connections'),
+
+  getConnectionById: (id: string) => apiClient.get<DsoConnection>(`/dso-connections/${id}`),
+
+  // ✅ FIX: accepter tariffUrl / energyUrl
+  createConnection: (data: CreateDsoConnectionInput) =>
+    apiClient.post<DsoConnection>('/dso-connections', data),
+
+  // ✅ FIX: update typé (isActive + urls + token si supporté)
+  updateConnection: (id: string, data: UpdateDsoConnectionInput) =>
+    apiClient.put<DsoConnection>(`/dso-connections/${id}`, data),
+
+  deleteConnection: (id: string) => apiClient.delete(`/dso-connections/${id}`),
+
+  // Site Link endpoints
+  getSiteLinks: (connectionId?: string) =>
+    apiClient.get<SiteLink[]>(
+      `/dso-connections${connectionId ? `/${connectionId}` : ''}/site-links`
+    ),
+
+  getSiteLinkById: (id: string) => apiClient.get<SiteLink>(`/dso-connections/site-links/${id}`),
+
+  createSiteLink: (data: { siteId: string; dsoConnectionId: string; dsoSiteRef?: string }) =>
+    apiClient.post<SiteLink>('/dso-connections/site-links', data),
+
+  updateSiteLink: (id: string, data: Partial<SiteLink>) =>
+    apiClient.put<SiteLink>(`/dso-connections/site-links/${id}`, data),
+
+  deleteSiteLink: (id: string) => apiClient.delete(`/dso-connections/site-links/${id}`),
+
+  // Get available DSO sites from a connection
+  getDsoSites: (connectionId: string) =>
+    apiClient.get<any[]>(`/dso-connections/${connectionId}/sites`),
+
+  // Energy sync endpoint
+  syncEnergy: (siteLinkId: string) =>
+    apiClient.post<EnergySnapshot>(`/dso-connections/site-links/${siteLinkId}/sync-energy`, {}),
+};

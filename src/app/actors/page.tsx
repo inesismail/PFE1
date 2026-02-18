@@ -1,74 +1,173 @@
 'use client';
 
-import { ActorImplementation, PluginMetadata, actorsApi } from '@/lib/api';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import type {
+  Actor,
+  ActorImplementation,
+  PluginMetadata,
+  LocalSite,
+  DsoConnection,
+  SiteLink,
+} from '@/lib/api';
+import { actorsApi, sitesApi, dsoApi } from '@/lib/api';
+
 import {
   Badge,
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
   ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Input,
   Select,
 } from '@/components/ui';
+
 import {
   Box,
+  Building2,
   ChevronRight,
   Edit2,
+  MapPin,
+  Network,
   Plug,
   Plus,
   Settings,
+  Smartphone,
   ToggleLeft,
   ToggleRight,
   Trash2,
   Users,
   Zap,
 } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Header } from '@/components/layout';
-import Link from 'next/link';
-import { useState } from 'react';
+
+// ✅ helper: supporte apiClient qui renvoie soit T, soit { data: T }
+function unwrap<T>(res: unknown): T {
+  if (res && typeof res === 'object' && 'data' in (res as any)) {
+    return (res as any).data as T;
+  }
+  return res as T;
+}
 
 export default function ActorsPage() {
   const queryClient = useQueryClient();
+
   const [showForm, setShowForm] = useState(false);
   const [editingActor, setEditingActor] = useState<string | null>(null);
   const [selectedActor, setSelectedActor] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [showActorModal, setShowActorModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'config' | 'sites'>('config');
+
   const [formData, setFormData] = useState({
     actorTypeId: '',
     code: '',
     name: '',
   });
 
-  // Queries
-  const { data: actorTypes } = useQuery({
+  const [searchQuery, setSearchQuery] = useState('');
+  const [siteDsoSelection, setSiteDsoSelection] = useState<Record<string, string>>({});
+  const [siteDsoSiteRefSelection, setSiteDsoSiteRefSelection] = useState<Record<string, string>>({});
+  const [loadingDsoSites, setLoadingDsoSites] = useState<Record<string, boolean>>({});
+  const [siteDsoSitesMap, setSiteDsoSitesMap] = useState<Record<string, any[]>>({});
+
+  // -----------------------
+  // QUERIES (TYPÉES ✅)
+  // -----------------------
+
+  const { data: actorTypes = [] } = useQuery<any[]>({
     queryKey: ['actor-types'],
-    queryFn: actorsApi.getTypes,
+    queryFn: async () => unwrap<any[]>(await actorsApi.getTypes()) ?? [],
   });
 
-  const { data: actors, isLoading } = useQuery({
+  const { data: actors = [], isLoading } = useQuery<Actor[]>({
     queryKey: ['actors'],
-    queryFn: () => actorsApi.getAll(),
+    queryFn: async () => unwrap<Actor[]>(await actorsApi.getAll()) ?? [],
   });
 
-  const { data: implementations } = useQuery({
+  const { data: implementations = [] } = useQuery<ActorImplementation[]>({
     queryKey: ['actor-implementations', selectedActor],
-    queryFn: () => actorsApi.getImplementations(selectedActor!),
     enabled: !!selectedActor,
+    queryFn: async () => {
+      if (!selectedActor) return [];
+      return unwrap<ActorImplementation[]>(await actorsApi.getImplementations(selectedActor)) ?? [];
+    },
   });
 
-  const { data: availableImplementations } = useQuery({
+  const { data: availableImplementations = [] } = useQuery<PluginMetadata[]>({
     queryKey: ['available-implementations', selectedActor],
-    queryFn: () => actorsApi.getAvailableImplementations(selectedActor!),
     enabled: !!selectedActor,
+    queryFn: async () => {
+      if (!selectedActor) return [];
+      return (
+        unwrap<PluginMetadata[]>(await actorsApi.getAvailableImplementations(selectedActor)) ?? []
+      );
+    },
   });
 
-  // Mutations
+  const { data: allSites = [] } = useQuery<LocalSite[]>({
+    queryKey: ['all-sites'],
+    queryFn: async () => unwrap<LocalSite[]>(await sitesApi.getAll()) ?? [],
+  });
+
+  const { data: dsoConnections = [] } = useQuery<DsoConnection[]>({
+    queryKey: ['dso-connections'],
+    queryFn: async () => unwrap<DsoConnection[]>(await dsoApi.getConnections()) ?? [],
+  });
+
+  const { data: existingSiteLinks = [] } = useQuery<SiteLink[]>({
+    queryKey: ['all-site-links'],
+    queryFn: async () => unwrap<SiteLink[]>(await dsoApi.getSiteLinks()) ?? [],
+  });
+
+  // -----------------------
+  // DERIVED DATA
+  // -----------------------
+
+  const selectedActorData = useMemo(
+    () => actors.find((a) => a.id === selectedActor) ?? null,
+    [actors, selectedActor]
+  );
+
+  const actorSites = useMemo(
+    () => allSites.filter((site) => site.cpoConnection?.actor?.id === selectedActor),
+    [allSites, selectedActor]
+  );
+
+  const enabledCodes = useMemo(
+    () => implementations.map((i) => i.implementation?.code).filter(Boolean) as string[],
+    [implementations]
+  );
+
+  const filteredAvailableImplementations = useMemo(
+    () =>
+      availableImplementations.filter((plugin: PluginMetadata) => {
+        // ✅ plugin typé => plus d'implicit any
+        return !enabledCodes.includes(plugin.id);
+      }),
+    [availableImplementations, enabledCodes]
+  );
+
+  // -----------------------
+  // MUTATIONS
+  // -----------------------
+
+  const resetForm = () => {
+    setFormData({ actorTypeId: '', code: '', name: '' });
+    setEditingActor(null);
+  };
+
   const createActorMutation = useMutation({
     mutationFn: actorsApi.create,
     onSuccess: () => {
@@ -103,10 +202,6 @@ export default function ActorsPage() {
       queryClient.invalidateQueries({ queryKey: ['actor-implementations'] });
       queryClient.invalidateQueries({ queryKey: ['available-implementations'] });
     },
-    onError: (error: Error) => {
-      console.error('Enable implementation error:', error);
-      alert(`Erreur: ${error.message}`);
-    },
   });
 
   const disableImplMutation = useMutation({
@@ -116,27 +211,22 @@ export default function ActorsPage() {
       queryClient.invalidateQueries({ queryKey: ['actor-implementations'] });
       queryClient.invalidateQueries({ queryKey: ['available-implementations'] });
     },
-    onError: (error: Error) => {
-      console.error('Disable implementation error:', error);
-      alert(`Erreur: ${error.message}`);
+  });
+
+  const createSiteLinkMutation = useMutation({
+    mutationFn: (data: { siteId: string; dsoConnectionId: string; dsoSiteRef: string }) => 
+      dsoApi.createSiteLink(data),
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ['all-site-links'] });
+      queryClient.invalidateQueries({ queryKey: ['all-sites'] });
+      setSiteDsoSelection({});
+      setSiteDsoSiteRefSelection({});
     },
   });
 
-  const resetForm = () => {
-    setFormData({ actorTypeId: '', code: '', name: '' });
-    setEditingActor(null);
-  };
-
-  const handleEditActor = (actor: typeof selectedActorData) => {
-    if (actor) {
-      setEditingActor(actor.id);
-      setFormData({
-        actorTypeId: actor.actorType?.id || '',
-        code: actor.code,
-        name: actor.name,
-      });
-    }
-  };
+  // -----------------------
+  // UI HELPERS
+  // -----------------------
 
   const getActorTypeIcon = (code: string) => {
     switch (code) {
@@ -144,396 +234,564 @@ export default function ActorsPage() {
         return <Plug className="h-5 w-5" />;
       case 'PROVIDER':
         return <Zap className="h-5 w-5" />;
+      case 'DSO':
+        return <Building2 className="h-5 w-5" />;
+      case 'TSO':
+        return <Network className="h-5 w-5" />;
+      case 'EMSP':
+        return <Smartphone className="h-5 w-5" />;
       default:
         return <Box className="h-5 w-5" />;
     }
   };
 
-  const selectedActorData = actors?.find((a) => a.id === selectedActor);
+  const getActorTypeBadgeColor = (code: string) => {
+    switch (code) {
+      case 'CPO':
+        return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
+      case 'PROVIDER':
+        return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
+      case 'DSO':
+        return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+      case 'TSO':
+        return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
+      case 'EMSP':
+        return 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20';
+      default:
+        return 'bg-muted text-muted-foreground';
+    }
+  };
 
-  // Filter available implementations to exclude already enabled ones
-  const enabledCodes = implementations?.map(i => i.implementation?.code) || [];
-  const filteredAvailableImplementations = (availableImplementations as PluginMetadata[] | undefined)?.filter(
-    (plugin) => !enabledCodes.includes(plugin.id)
-  ) || [];
+  // Group actors by type, filtered by search
+  const actorsByType = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const filtered = q
+      ? actors.filter(
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            a.code.toLowerCase().includes(q) ||
+            a.actorType?.name?.toLowerCase().includes(q) ||
+            a.actorType?.code?.toLowerCase().includes(q)
+        )
+      : actors;
+
+    const groups: Record<string, { type: any; actors: Actor[] }> = {};
+    for (const actor of filtered) {
+      const typeCode = actor.actorType?.code || 'UNKNOWN';
+      if (!groups[typeCode]) {
+        groups[typeCode] = { type: actor.actorType, actors: [] };
+      }
+      groups[typeCode].actors.push(actor);
+    }
+    // Sort by a fixed order
+    const order = ['CPO', 'PROVIDER', 'DSO', 'TSO', 'EMSP'];
+    return order
+      .filter((code) => groups[code])
+      .map((code) => groups[code])
+      .concat(
+        Object.entries(groups)
+          .filter(([code]) => !order.includes(code))
+          .map(([, g]) => g)
+      );
+  }, [actors, searchQuery]);
+
+  const handleEditActor = (actor: Actor | null) => {
+    if (!actor) return;
+    setEditingActor(actor.id);
+    setFormData({
+      actorTypeId: actor.actorType?.id || '',
+      code: actor.code,
+      name: actor.name,
+    });
+  };
+
+  const handleLoadDsoSites = async (siteId: string, dsoConnectionId: string) => {
+    setLoadingDsoSites((prev) => ({ ...prev, [siteId]: true }));
+    try {
+      const res = await dsoApi.getDsoSites(dsoConnectionId);
+      // backend may return either an array or an object { sites: [...] }
+      const raw = res as any;
+      const sites = Array.isArray(raw) ? raw : (raw && (raw.sites || raw.data) ? (raw.sites || raw.data) : []);
+      setSiteDsoSitesMap((prev) => ({ ...prev, [siteId]: sites }));
+      // Don't auto-select — let the user pick from the dropdown
+      setSiteDsoSiteRefSelection((prev) => ({ ...prev, [siteId]: '' }));
+    } catch (error) {
+      console.error('Failed to load DSO sites:', error);
+      setSiteDsoSitesMap((prev) => ({ ...prev, [siteId]: [] }));
+    } finally {
+      setLoadingDsoSites((prev) => ({ ...prev, [siteId]: false }));
+    }
+  };
+
+  // -----------------------
+  // RENDER
+  // -----------------------
 
   return (
     <div className="min-h-screen bg-background">
       <Header
         title="Acteurs"
         description="Gérez les acteurs et leurs implémentations (plugins)"
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Rechercher un acteur..."
       />
 
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Actors List */}
-          <div className="lg:col-span-1 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">Liste des Acteurs</h2>
+      <div className="p-6 space-y-6">
+        {/* Header row */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Liste des Acteurs</h2>
+            <p className="text-sm text-muted-foreground">{actors.length} acteur(s) configuré(s)</p>
+          </div>
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Nouvel Acteur
+          </Button>
+        </div>
+
+        {/* Create Actor Form */}
+        {showForm && (
+          <Card className="max-w-lg">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Nouvel Acteur</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Select
+                label="Type d'acteur"
+                options={actorTypes.map((t: any) => ({ value: t.id, label: t.name }))}
+                value={formData.actorTypeId}
+                onChange={(e) => setFormData({ ...formData, actorTypeId: e.target.value })}
+                placeholder="Sélectionner..."
+              />
+              <Input
+                label="Code"
+                placeholder="WATTZHUB_PROD"
+                value={formData.code}
+                onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+              />
+              <Input
+                label="Nom"
+                placeholder="WattzHub Production"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              />
+            </CardContent>
+            <CardFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowForm(false);
+                  resetForm();
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => createActorMutation.mutate(formData)}
+                isLoading={createActorMutation.isPending}
+                disabled={!formData.actorTypeId || !formData.code || !formData.name}
+              >
+                Créer
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
+
+        {/* Actors grouped by type */}
+        {isLoading ? (
+          <Card>
+            <CardContent className="py-12 text-center text-muted-foreground">
+              Chargement des acteurs...
+            </CardContent>
+          </Card>
+        ) : actors.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Users className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">Aucun acteur configuré</h3>
+              <p className="text-muted-foreground mb-4">Créez votre premier acteur pour commencer</p>
               <Button size="sm" onClick={() => setShowForm(true)}>
                 <Plus className="h-4 w-4 mr-1" />
-                Nouveau
+                Créer un acteur
               </Button>
-            </div>
-
-            {/* Create Actor Form */}
-            {showForm && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Nouvel Acteur</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Select
-                    label="Type d'acteur"
-                    options={
-                      actorTypes?.map((t) => ({ value: t.id, label: t.name })) || []
-                    }
-                    value={formData.actorTypeId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, actorTypeId: e.target.value })
-                    }
-                    placeholder="Sélectionner..."
-                  />
-                  <Input
-                    label="Code"
-                    placeholder="WATTZHUB_PROD"
-                    value={formData.code}
-                    onChange={(e) =>
-                      setFormData({ ...formData, code: e.target.value.toUpperCase() })
-                    }
-                  />
-                  <Input
-                    label="Nom"
-                    placeholder="WattzHub Production"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </CardContent>
-                <CardFooter className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setShowForm(false);
-                      resetForm();
-                    }}
-                  >
-                    Annuler
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => createActorMutation.mutate(formData)}
-                    isLoading={createActorMutation.isPending}
-                    disabled={!formData.actorTypeId || !formData.code || !formData.name}
-                  >
-                    Créer
-                  </Button>
-                </CardFooter>
-              </Card>
-            )}
-
-            {/* Actors List */}
-            <div className="space-y-2">
-              {isLoading ? (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    Chargement...
-                  </CardContent>
-                </Card>
-              ) : actors && actors.length > 0 ? (
-                actors.map((actor) => (
-                  <Card
-                    key={actor.id}
-                    className={`transition-all cursor-pointer hover:border-primary/50 ${
-                      selectedActor === actor.id
-                        ? 'border-primary ring-1 ring-primary'
-                        : ''
-                    }`}
-                    onClick={() => setSelectedActor(actor.id)}
-                  >
-                    <CardContent className="py-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-                              actor.isActive ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                            }`}
-                          >
-                            {getActorTypeIcon(actor.actorType?.code)}
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{actor.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {actor.actorType?.name} • {actor.code}
-                            </p>
-                          </div>
-                        </div>
-                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <Card>
-                  <CardContent className="py-8 text-center">
-                    <Users className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
-                    <p className="text-muted-foreground">Aucun acteur configuré</p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-3"
-                      onClick={() => setShowForm(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      Créer un acteur
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
-
-          {/* Actor Details & Implementations */}
-          <div className="lg:col-span-2">
-            {selectedActor && selectedActorData ? (
-              <div className="space-y-6">
-                {/* Actor Header */}
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground">
-                          {getActorTypeIcon(selectedActorData.actorType?.code)}
-                        </div>
-                        <div>
-                          <h2 className="text-xl font-semibold text-foreground">
-                            {selectedActorData.name}
-                          </h2>
-                          <p className="text-sm text-muted-foreground">
-                            {selectedActorData.actorType?.name} • {selectedActorData.code}
-                          </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge variant={selectedActorData.isActive ? 'success' : 'default'}>
-                              {selectedActorData.isActive ? 'Actif' : 'Inactif'}
-                            </Badge>
-                            {selectedActorData.cpoConnection && (
-                              <Badge variant="info">Connecté à WattzHub</Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEditActor(selectedActorData)}
-                        >
-                          <Edit2 className="h-4 w-4 mr-1" />
-                          Modifier
-                        </Button>
-                        {selectedActorData.actorType?.code === 'CPO' &&
-                          !selectedActorData.cpoConnection && (
-                            <Link href="/cpo">
-                              <Button variant="outline" size="sm">
-                                <Plug className="h-4 w-4 mr-1" />
-                                Connecter CPO
-                              </Button>
-                            </Link>
-                          )}
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setDeleteDialogOpen(true)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {actorsByType.map((group) => {
+              const typeCode = group.type?.code || 'UNKNOWN';
+              return (
+                <Card key={typeCode} className="overflow-hidden">
+                  {/* Type header */}
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-muted/30">
+                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center border ${getActorTypeBadgeColor(typeCode)}`}>
+                      {getActorTypeIcon(typeCode)}
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground">{group.type?.name || typeCode}</h3>
+                      <p className="text-xs text-muted-foreground">{group.type?.description || ''}</p>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {group.actors.length} acteur{group.actors.length > 1 ? 's' : ''}
+                    </Badge>
+                  </div>
 
-                {/* Delete Actor Confirmation Dialog */}
-                <ConfirmDialog
-                  open={deleteDialogOpen}
-                  onOpenChange={setDeleteDialogOpen}
-                  title="Supprimer l'acteur"
-                  description={`Êtes-vous sûr de vouloir supprimer l'acteur "${selectedActorData.name}" ? Cette action est irréversible et supprimera également toutes les données associées.`}
-                  confirmText="Supprimer"
-                  cancelText="Annuler"
-                  variant="danger"
-                  onConfirm={() => {
-                    deleteActorMutation.mutate(selectedActorData.id);
-                    setDeleteDialogOpen(false);
-                  }}
-                  isLoading={deleteActorMutation.isPending}
-                />
-
-                {/* Edit Actor Form */}
-                {editingActor === selectedActorData.id && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Modifier l&apos;acteur</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <Input
-                        label="Code"
-                        value={formData.code}
-                        disabled
-                        helperText="Le code ne peut pas être modifié"
-                      />
-                      <Input
-                        label="Nom"
-                        placeholder="WattzHub Production"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      />
-                    </CardContent>
-                    <CardFooter className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingActor(null);
-                          resetForm();
-                        }}
-                      >
-                        Annuler
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          updateActorMutation.mutate({
-                            id: selectedActorData.id,
-                            data: { name: formData.name },
-                          })
-                        }
-                        isLoading={updateActorMutation.isPending}
-                        disabled={!formData.name}
-                      >
-                        Enregistrer
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                )}
-
-                {/* Implementations */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5" />
-                      Implémentations (Plugins)
-                    </CardTitle>
-                    <CardDescription>
-                      Activez ou désactivez les plugins pour cet acteur
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {/* Active Implementations */}
-                      {implementations && implementations.length > 0 ? (
-                        implementations.map((impl: ActorImplementation) => (
-                          <div
-                            key={impl.id}
-                            className="flex items-center justify-between p-4 bg-green-500/10 border border-green-500/30 rounded-lg"
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/10">
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Nom</th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Code</th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Statut</th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Créé le</th>
+                          <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {group.actors.map((actor) => (
+                          <tr
+                            key={actor.id}
+                            className="hover:bg-muted/20 transition-colors cursor-pointer group"
+                            onClick={() => {
+                              setSelectedActor(actor.id);
+                              setShowActorModal(true);
+                            }}
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-lg bg-green-500/20 flex items-center justify-center">
-                                <Zap className="h-5 w-5 text-green-500" />
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${actor.isActive ? getActorTypeBadgeColor(typeCode) : 'bg-muted text-muted-foreground'}`}>
+                                  {getActorTypeIcon(typeCode)}
+                                </div>
+                                <span className="font-medium text-sm text-foreground">{actor.name}</span>
                               </div>
-                              <div>
-                                <p className="font-medium text-foreground">
-                                  {impl.implementation?.name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  v{impl.implementation?.version} •{' '}
-                                  {impl.implementation?.implementationType?.name}
-                                </p>
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                if (selectedActor && impl.implementation?.code) {
-                                  disableImplMutation.mutate({
-                                    actorId: selectedActor,
-                                    code: impl.implementation.code,
-                                  });
-                                }
-                              }}
-                              className="text-green-500 hover:text-green-600"
+                            </td>
+                            <td className="px-6 py-4">
+                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">{actor.code}</code>
+                            </td>
+                            <td className="px-6 py-4">
+                              <Badge variant={actor.isActive ? 'success' : 'warning'} className="text-xs">
+                                {actor.isActive ? 'Actif' : 'Inactif'}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-muted-foreground">
+                              {(actor as any).createdAt ? new Date((actor as any).createdAt).toLocaleDateString('fr-FR') : '—'}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedActor(actor.id);
+                                  setShowActorModal(true);
+                                }}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      <Dialog open={showActorModal} onOpenChange={setShowActorModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white">
+                {selectedActorData && getActorTypeIcon(selectedActorData.actorType?.code)}
+              </div>
+              {selectedActorData?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedActorData?.actorType?.name} • {selectedActorData?.code}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedActorData && (
+            <div className="space-y-6">
+              {/* Status */}
+              <div className="flex items-center gap-2">
+                <Badge variant={selectedActorData.isActive ? 'success' : 'default'}>
+                  {selectedActorData.isActive ? 'Actif' : 'Inactif'}
+                </Badge>
+              </div>
+
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={() => handleEditActor(selectedActorData)} className="justify-start">
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  Modifier
+                </Button>
+
+                <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)} className="justify-start">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Supprimer
+                </Button>
+              </div>
+
+              {/* Tabs */}
+              <div className="border-t pt-6 space-y-4">
+                <div className="flex items-center gap-0 border-b border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => setActiveTab('config')}
+                    className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
+                      activeTab === 'config'
+                        ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
+                        : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    <Settings className="h-4 w-4" />
+                    CONFIG
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('sites')}
+                    className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
+                      activeTab === 'sites'
+                        ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
+                        : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    SITES
+                  </button>
+                </div>
+
+                {/* Tab Content */}
+                <div className="pt-4">
+                  {activeTab === 'config' && (
+                    <div className="space-y-4">
+                      {/* Enabled */}
+                      {implementations.length > 0 && (
+                        <div className="space-y-2">
+                          {implementations.map((impl) => (
+                            <div
+                              key={impl.id}
+                              className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20"
                             >
-                              <ToggleRight className="h-6 w-6" />
-                            </Button>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          Aucune implémentation active
-                        </p>
+                              <div>
+                                <p className="font-medium text-sm">{impl.implementation?.name}</p>
+                                <p className="text-xs text-muted-foreground">v{impl.implementation?.version}</p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  if (selectedActor && impl.implementation?.code) {
+                                    disableImplMutation.mutate({
+                                      actorId: selectedActor,
+                                      code: impl.implementation.code,
+                                    });
+                                  }
+                                }}
+                                disabled={disableImplMutation.isPending}
+                              >
+                                <ToggleRight className="h-5 w-5 text-primary" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       )}
 
-                      {/* Available Implementations */}
+                      {/* Available */}
                       {filteredAvailableImplementations.length > 0 && (
-                          <>
-                            <div className="border-t border-border my-4" />
-                            <p className="text-sm font-medium text-foreground mb-2">
-                              Disponibles
-                            </p>
-                            {filteredAvailableImplementations.map((impl: PluginMetadata) => (
-                              <div
-                                key={impl.id}
-                                className="flex items-center justify-between p-4 bg-muted border border-border rounded-lg"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
-                                    <Zap className="h-5 w-5 text-muted-foreground" />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium text-foreground">{impl.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      v{impl.version} • {impl.type}
-                                    </p>
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
+                        <div className="space-y-2">
+                          {filteredAvailableImplementations.map((plugin) => (
+                            <div
+                              key={plugin.id}
+                              className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-muted"
+                            >
+                              <div>
+                                <p className="font-medium text-sm">{plugin.name}</p>
+                                <p className="text-xs text-muted-foreground">v{plugin.version}</p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  if (selectedActor) {
                                     enableImplMutation.mutate({
                                       actorId: selectedActor,
-                                      code: impl.id,
-                                    })
+                                      code: plugin.id,
+                                    });
                                   }
-                                  className="text-muted-foreground hover:text-foreground"
-                                >
-                                  <ToggleLeft className="h-6 w-6" />
-                                </Button>
-                              </div>
-                            ))}
-                          </>
-                        )}
+                                }}
+                                disabled={enableImplMutation.isPending}
+                              >
+                                <ToggleLeft className="h-5 w-5 text-muted-foreground" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+
+                  {activeTab === 'sites' && (
+                    <div className="space-y-3">
+                      {actorSites.length > 0 ? (
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                          {actorSites.map((site) => {
+                            const existingLink = existingSiteLinks.find((l) => l.siteId === site.id);
+                            const selectedDso = siteDsoSelection[site.id] || '';
+
+                            return (
+                              <div key={site.id} className="rounded-lg bg-muted/30 border border-muted overflow-hidden">
+                                <div className="flex items-center justify-between p-3">
+                                  <div>
+                                    <p className="font-medium text-sm">{site.name}</p>
+                                    <p className="text-xs text-muted-foreground">{site.address || "Pas d'adresse"}</p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    {existingLink && (
+                                      <Badge variant="success" className="text-xs">
+                                        ✓ DSO Lié
+                                      </Badge>
+                                    )}
+                                    <Link href={`/sites/${site.id}`}>
+                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                      </Button>
+                                    </Link>
+                                  </div>
+                                </div>
+
+                                {!existingLink && (
+                                  <div className="border-t border-muted bg-background/50 p-3">
+                                    <div className="flex flex-col gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <select
+                                          value={selectedDso}
+                                          onChange={(e) => {
+                                            const newDsoId = e.target.value;
+                                            setSiteDsoSelection((prev) => ({ ...prev, [site.id]: newDsoId }));
+                                            if (newDsoId) {
+                                              handleLoadDsoSites(site.id, newDsoId);
+                                            }
+                                          }}
+                                          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                          <option value="">Sélectionner un DSO...</option>
+                                          {dsoConnections.map((conn) => (
+                                            <option key={conn.id} value={conn.id}>
+                                              {conn.label ? `${conn.label} — ${conn.baseUrl}` : conn.baseUrl}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      {selectedDso && (
+                                        <div className="flex items-center gap-2">
+                                          {loadingDsoSites[site.id] ? (
+                                            <div className="flex-1 px-3 py-2 text-sm text-muted-foreground italic">
+                                              Chargement des sites DSO...
+                                            </div>
+                                          ) : (siteDsoSitesMap[site.id] && siteDsoSitesMap[site.id].length > 0) ? (
+                                            <select
+                                              value={siteDsoSiteRefSelection[site.id] || ''}
+                                              onChange={(e) =>
+                                                setSiteDsoSiteRefSelection((prev) => ({
+                                                  ...prev,
+                                                  [site.id]: e.target.value,
+                                                }))
+                                              }
+                                              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            >
+                                              <option value="">Sélectionner un site DSO...</option>
+                                              {siteDsoSitesMap[site.id].map((dsoSite: any) => (
+                                                <option key={dsoSite.id} value={dsoSite.id}>
+                                                  {dsoSite.name}{dsoSite.address ? ` — ${dsoSite.address}` : ''}{dsoSite.city ? ` • ${dsoSite.city}` : ''}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          ) : (
+                                            <input
+                                              type="text"
+                                              placeholder="Entrer la ref DSO du site (ex: SITE_123)"
+                                              value={siteDsoSiteRefSelection[site.id] || ''}
+                                              onChange={(e) =>
+                                                setSiteDsoSiteRefSelection((prev) => ({
+                                                  ...prev,
+                                                  [site.id]: e.target.value,
+                                                }))
+                                              }
+                                              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                          )}
+                                          <Button
+                                            size="sm"
+                                            onClick={() => {
+                                              const dsoSiteRef = siteDsoSiteRefSelection[site.id];
+                                              if (!dsoSiteRef) {
+                                                alert('Veuillez entrer une référence DSO');
+                                                return;
+                                              }
+                                              createSiteLinkMutation.mutate({
+                                                siteId: site.id,
+                                                dsoConnectionId: selectedDso,
+                                                dsoSiteRef,
+                                              });
+                                            }}
+                                            isLoading={createSiteLinkMutation.isPending}
+                                          >
+                                            Effectuer
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-muted-foreground">
+                          <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-xs">Aucun site lié à cet acteur</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <Card className="h-full min-h-[400px] flex items-center justify-center">
-                <CardContent className="text-center">
-                  <Users className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-                  <h3 className="text-lg font-medium text-foreground mb-2">
-                    Sélectionnez un acteur
-                  </h3>
-                  <p className="text-muted-foreground max-w-sm">
-                    Cliquez sur un acteur dans la liste pour voir ses détails et gérer ses
-                    implémentations
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Supprimer l'acteur"
+        description={`Êtes-vous sûr de vouloir supprimer l'acteur "${selectedActorData?.name}" ?`}
+        confirmText="Supprimer"
+        cancelText="Annuler"
+        variant="danger"
+        onConfirm={() => {
+          if (selectedActor) {
+            deleteActorMutation.mutate(selectedActor);
+            setDeleteDialogOpen(false);
+            setShowActorModal(false);
+          }
+        }}
+        isLoading={deleteActorMutation.isPending}
+      />
     </div>
   );
 }

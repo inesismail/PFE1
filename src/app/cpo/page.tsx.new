@@ -1,0 +1,402 @@
+'use client';
+
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { cpoApi, actorsApi } from '@/lib/api';
+import { toast } from 'sonner';
+import { Plus, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+
+export default function CpoPage() {
+  const queryClient = useQueryClient();
+  
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    actorId: '',
+    baseUrl: '',
+    authType: 'token' as 'token' | 'credentials',
+    email: '',
+    password: '',
+    accessToken: '',
+    fetchIntervalMinutes: 30,
+  });
+
+  // ============================================================================
+  // QUERIES
+  // ============================================================================
+
+  // Get CPO connections
+  const { data: connections = [], isLoading } = useQuery({
+    queryKey: ['cpo-connections'],
+    queryFn: async () => {
+      try {
+        const response = await cpoApi.getConnections();
+        return response || [];
+      } catch (error) {
+        console.error('Error fetching CPO connections:', error);
+        return [];
+      }
+    },
+  });
+
+  // Get actors (to select CPO)
+  const { data: actors = [] } = useQuery({
+    queryKey: ['actors'],
+    queryFn: async () => {
+      try {
+        const response = await actorsApi.getAll();
+        return response || [];
+      } catch (error) {
+        console.error('Error fetching actors:', error);
+        return [];
+      }
+    },
+  });
+
+  // ============================================================================
+  // MUTATIONS
+  // ============================================================================
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof formData) => cpoApi.createConnection(data),
+    onSuccess: () => {
+      toast.success('CPO Connection créée avec succès');
+      queryClient.invalidateQueries({ queryKey: ['cpo-connections'] });
+      resetForm();
+      setIsFormOpen(false);
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erreur lors de la création');
+      console.error('Error creating CPO connection:', error);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => cpoApi.deleteConnection(id),
+    onSuccess: () => {
+      toast.success('CPO supprimé');
+      queryClient.invalidateQueries({ queryKey: ['cpo-connections'] });
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erreur suppression');
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: (id: string) => cpoApi.syncSites(id),
+    onSuccess: () => {
+      toast.success('Sites synchronisés avec WattzHub');
+      queryClient.invalidateQueries({ queryKey: ['cpo-connections'] });
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erreur synchronisation');
+    },
+  });
+
+  // ============================================================================
+  // HANDLERS
+  // ============================================================================
+
+  const resetForm = () => {
+    setFormData({
+      actorId: '',
+      baseUrl: '',
+      authType: 'token',
+      email: '',
+      password: '',
+      accessToken: '',
+      fetchIntervalMinutes: 30,
+    });
+    setShowPassword(false);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.actorId || !formData.baseUrl) {
+      toast.error('Actor et Base URL sont requis');
+      return;
+    }
+
+    if (formData.authType === 'credentials') {
+      if (!formData.email || !formData.password) {
+        toast.error('Email et mot de passe requis');
+        return;
+      }
+    } else if (!formData.accessToken) {
+      toast.error('Access token requis');
+      return;
+    }
+
+    createMutation.mutate(formData);
+  };
+
+  const getActorName = (actorId: string) => {
+    return actors.find((a: any) => a.id === actorId)?.name || actorId;
+  };
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Connexions CPO (WattzHub)</h1>
+        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+          <DialogTrigger asChild>
+            <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+              <Plus className="h-4 w-4" />
+              Nouvelle Connexion CPO
+            </button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Ajouter une Connexion CPO</DialogTitle>
+              <DialogDescription>
+                Connectez-vous à WattzHub pour gérer vos stations de recharge
+              </DialogDescription>
+            </DialogHeader>
+            <form className="space-y-4">
+              {/* Actor Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Acteur CPO</label>
+                <select
+                  value={formData.actorId}
+                  onChange={(e) => setFormData({ ...formData, actorId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                >
+                  <option value="">Sélectionner un acteur</option>
+                  {actors.map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Base URL */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Base URL WattzHub</label>
+                <input
+                  type="url"
+                  placeholder="https://api.wattzhub.com/v1/api"
+                  value={formData.baseUrl}
+                  onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                />
+              </div>
+
+              {/* Auth Type */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Type d'Authentification</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="token"
+                      checked={formData.authType === 'token'}
+                      onChange={(e) => setFormData({ ...formData, authType: e.target.value as 'token' | 'credentials' })}
+                    />
+                    <span>Access Token</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="credentials"
+                      checked={formData.authType === 'credentials'}
+                      onChange={(e) => setFormData({ ...formData, authType: e.target.value as 'token' | 'credentials' })}
+                    />
+                    <span>Email/Mot de passe</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Auth Token */}
+              {formData.authType === 'token' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Access Token</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="eyJhbGciOiJIUzI1NiIs..."
+                      value={formData.accessToken}
+                      onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Email & Password */}
+              {formData.authType === 'credentials' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Email</label>
+                    <input
+                      type="email"
+                      placeholder="operator@company.com"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Mot de passe</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Fetch Interval */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Intervalle Synchronisation (minutes)</label>
+                <select
+                  value={formData.fetchIntervalMinutes}
+                  onChange={(e) => setFormData({ ...formData, fetchIntervalMinutes: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+                >
+                  <option value="5">5 minutes</option>
+                  <option value="10">10 minutes</option>
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">1 heure</option>
+                </select>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-2 justify-end pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsFormOpen(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors dark:bg-gray-700 dark:text-gray-200"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={createMutation.isPending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {createMutation.isPending ? 'Création...' : 'Créer'}
+                </button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Error Message */}
+      {false && (
+        <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+          Erreur lors du chargement des connexions
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex justify-center py-12">
+          <RefreshCw className="h-6 w-6 animate-spin" />
+        </div>
+      ) : connections.length === 0 ? (
+        <div className="rounded-lg border-2 border-dashed p-8 text-center">
+          <p className="text-gray-500 dark:text-gray-400">
+            Aucune connexion CPO configurée. Cliquez sur "Nouvelle Connexion CPO" pour en ajouter une.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {connections.map((connection: any) => (
+            <div
+              key={connection.id}
+              className="rounded-lg border p-4 hover:shadow-md transition-shadow dark:border-gray-700"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg">
+                    {getActorName(connection.actorId)} - {connection.baseUrl}
+                  </h3>
+                  <div className="mt-2 grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
+                    <p>
+                      <span className="font-medium">Type Auth:</span> {connection.authType === 'token' ? 'Token' : 'Credentials'}
+                    </p>
+                    <p>
+                      <span className="font-medium">Intervalle:</span> {connection.fetchIntervalMinutes} min
+                    </p>
+                    <p>
+                      <span className="font-medium">Status:</span>{' '}
+                      {connection.isConnected ? (
+                        <span className="text-green-600">🟢 Connecté</span>
+                      ) : (
+                        <span className="text-red-600">🔴 Déconnecté</span>
+                      )}
+                    </p>
+                    {connection.lastSyncAt && (
+                      <p>
+                        <span className="font-medium">Dernière sync:</span>{' '}
+                        {new Date(connection.lastSyncAt).toLocaleString('fr-FR')}
+                      </p>
+                    )}
+                  </div>
+
+                  {connection.remoteChargingStationsCount !== undefined && (
+                    <p className="mt-2 text-sm text-blue-600">
+                      📍 {connection.remoteChargingStationsCount} stations de recharge
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 ml-4">
+                  <button
+                    onClick={() => syncMutation.mutate(connection.id)}
+                    disabled={syncMutation.isPending}
+                    className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+                    title="Synchroniser les sites avec WattzHub"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Synchro
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm('Êtes-vous sûr de vouloir supprimer cette connexion CPO?')) {
+                        deleteMutation.mutate(connection.id);
+                      }
+                    }}
+                    disabled={deleteMutation.isPending}
+                    className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
