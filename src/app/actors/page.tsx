@@ -126,9 +126,25 @@ export default function ActorsPage() {
     queryFn: async () => unwrap<DsoConnection[]>(await dsoApi.getConnections()) ?? [],
   });
 
+  // ✅ FIX: Récupérer les liens depuis TOUTES les connexions DSO (comme SitesPage)
+  // L'ancienne version appelait dsoApi.getSiteLinks() sans connectionId → retournait []
   const { data: existingSiteLinks = [] } = useQuery<SiteLink[]>({
-    queryKey: ['all-site-links'],
-    queryFn: async () => unwrap<SiteLink[]>(await dsoApi.getSiteLinks()) ?? [],
+    queryKey: ['all-site-links', dsoConnections.map((c) => c.id).join(',')],
+    enabled: dsoConnections.length > 0,
+    queryFn: async () => {
+      const results = await Promise.all(
+        dsoConnections.map(async (conn) => {
+          try {
+            const res = await dsoApi.getSiteLinks(conn.id);
+            const arr = Array.isArray(res) ? res : unwrap<SiteLink[]>(res);
+            return Array.isArray(arr) ? arr : [];
+          } catch {
+            return [];
+          }
+        })
+      );
+      return results.flat() as SiteLink[];
+    },
   });
 
   // -----------------------
@@ -153,7 +169,6 @@ export default function ActorsPage() {
   const filteredAvailableImplementations = useMemo(
     () =>
       availableImplementations.filter((plugin: PluginMetadata) => {
-        // ✅ plugin typé => plus d'implicit any
         return !enabledCodes.includes(plugin.id);
       }),
     [availableImplementations, enabledCodes]
@@ -214,9 +229,10 @@ export default function ActorsPage() {
   });
 
   const createSiteLinkMutation = useMutation({
-    mutationFn: (data: { siteId: string; dsoConnectionId: string; dsoSiteRef: string }) => 
+    mutationFn: (data: { siteId: string; dsoConnectionId: string; dsoSiteRef: string }) =>
       dsoApi.createSiteLink(data),
     onSuccess: async () => {
+      // ✅ FIX: invalider avec le bon queryKey (celui qui inclut les IDs des connexions)
       queryClient.invalidateQueries({ queryKey: ['all-site-links'] });
       queryClient.invalidateQueries({ queryKey: ['all-sites'] });
       setSiteDsoSelection({});
@@ -283,7 +299,6 @@ export default function ActorsPage() {
       }
       groups[typeCode].actors.push(actor);
     }
-    // Sort by a fixed order
     const order = ['CPO', 'PROVIDER', 'DSO', 'TSO', 'EMSP'];
     return order
       .filter((code) => groups[code])
@@ -309,11 +324,13 @@ export default function ActorsPage() {
     setLoadingDsoSites((prev) => ({ ...prev, [siteId]: true }));
     try {
       const res = await dsoApi.getDsoSites(dsoConnectionId);
-      // backend may return either an array or an object { sites: [...] }
       const raw = res as any;
-      const sites = Array.isArray(raw) ? raw : (raw && (raw.sites || raw.data) ? (raw.sites || raw.data) : []);
+      const sites = Array.isArray(raw)
+        ? raw
+        : raw && (raw.sites || raw.data)
+        ? raw.sites || raw.data
+        : [];
       setSiteDsoSitesMap((prev) => ({ ...prev, [siteId]: sites }));
-      // Don't auto-select — let the user pick from the dropdown
       setSiteDsoSiteRefSelection((prev) => ({ ...prev, [siteId]: '' }));
     } catch (error) {
       console.error('Failed to load DSO sites:', error);
@@ -427,7 +444,9 @@ export default function ActorsPage() {
                 <Card key={typeCode} className="overflow-hidden">
                   {/* Type header */}
                   <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-muted/30">
-                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center border ${getActorTypeBadgeColor(typeCode)}`}>
+                    <div
+                      className={`h-9 w-9 rounded-lg flex items-center justify-center border ${getActorTypeBadgeColor(typeCode)}`}
+                    >
                       {getActorTypeIcon(typeCode)}
                     </div>
                     <div className="flex-1">
@@ -444,11 +463,21 @@ export default function ActorsPage() {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border bg-muted/10">
-                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Nom</th>
-                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Code</th>
-                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Statut</th>
-                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Créé le</th>
-                          <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">Actions</th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">
+                            Nom
+                          </th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">
+                            Code
+                          </th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">
+                            Statut
+                          </th>
+                          <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">
+                            Créé le
+                          </th>
+                          <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-6 py-3">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -463,14 +492,22 @@ export default function ActorsPage() {
                           >
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
-                                <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${actor.isActive ? getActorTypeBadgeColor(typeCode) : 'bg-muted text-muted-foreground'}`}>
+                                <div
+                                  className={`h-8 w-8 rounded-lg flex items-center justify-center ${
+                                    actor.isActive
+                                      ? getActorTypeBadgeColor(typeCode)
+                                      : 'bg-muted text-muted-foreground'
+                                  }`}
+                                >
                                   {getActorTypeIcon(typeCode)}
                                 </div>
                                 <span className="font-medium text-sm text-foreground">{actor.name}</span>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">{actor.code}</code>
+                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">
+                                {actor.code}
+                              </code>
                             </td>
                             <td className="px-6 py-4">
                               <Badge variant={actor.isActive ? 'success' : 'warning'} className="text-xs">
@@ -478,7 +515,9 @@ export default function ActorsPage() {
                               </Badge>
                             </td>
                             <td className="px-6 py-4 text-sm text-muted-foreground">
-                              {(actor as any).createdAt ? new Date((actor as any).createdAt).toLocaleDateString('fr-FR') : '—'}
+                              {(actor as any).createdAt
+                                ? new Date((actor as any).createdAt).toLocaleDateString('fr-FR')
+                                : '—'}
                             </td>
                             <td className="px-6 py-4 text-right">
                               <Button
@@ -508,7 +547,7 @@ export default function ActorsPage() {
 
       {/* Modal */}
       <Dialog open={showActorModal} onOpenChange={setShowActorModal}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border-2 border-primary/30 bg-white dark:bg-gray-900">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white">
@@ -532,243 +571,328 @@ export default function ActorsPage() {
 
               {/* Actions */}
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={() => handleEditActor(selectedActorData)} className="justify-start">
+                <Button
+                  variant="outline"
+                  onClick={() => handleEditActor(selectedActorData)}
+                  className="justify-start"
+                >
                   <Edit2 className="h-4 w-4 mr-2" />
                   Modifier
                 </Button>
 
-                <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)} className="justify-start">
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="justify-start"
+                >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Supprimer
                 </Button>
               </div>
 
-              {/* Tabs */}
-              <div className="border-t pt-6 space-y-4">
-                <div className="flex items-center gap-0 border-b border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={() => setActiveTab('config')}
-                    className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
-                      activeTab === 'config'
-                        ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
-                        : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
-                    }`}
-                  >
-                    <Settings className="h-4 w-4" />
-                    CONFIG
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('sites')}
-                    className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
-                      activeTab === 'sites'
-                        ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
-                        : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
-                    }`}
-                  >
-                    <MapPin className="h-4 w-4" />
-                    SITES
-                  </button>
-                </div>
-
-                {/* Tab Content */}
-                <div className="pt-4">
-                  {activeTab === 'config' && (
-                    <div className="space-y-4">
-                      {/* Enabled */}
-                      {implementations.length > 0 && (
-                        <div className="space-y-2">
-                          {implementations.map((impl) => (
-                            <div
-                              key={impl.id}
-                              className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20"
-                            >
-                              <div>
-                                <p className="font-medium text-sm">{impl.implementation?.name}</p>
-                                <p className="text-xs text-muted-foreground">v{impl.implementation?.version}</p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  if (selectedActor && impl.implementation?.code) {
-                                    disableImplMutation.mutate({
-                                      actorId: selectedActor,
-                                      code: impl.implementation.code,
-                                    });
-                                  }
-                                }}
-                                disabled={disableImplMutation.isPending}
-                              >
-                                <ToggleRight className="h-5 w-5 text-primary" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Available */}
-                      {filteredAvailableImplementations.length > 0 && (
-                        <div className="space-y-2">
-                          {filteredAvailableImplementations.map((plugin) => (
-                            <div
-                              key={plugin.id}
-                              className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-muted"
-                            >
-                              <div>
-                                <p className="font-medium text-sm">{plugin.name}</p>
-                                <p className="text-xs text-muted-foreground">v{plugin.version}</p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  if (selectedActor) {
-                                    enableImplMutation.mutate({
-                                      actorId: selectedActor,
-                                      code: plugin.id,
-                                    });
-                                  }
-                                }}
-                                disabled={enableImplMutation.isPending}
-                              >
-                                <ToggleLeft className="h-5 w-5 text-muted-foreground" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+              {/* Edition Formulaire dans le modal */}
+              {editingActor === selectedActorData.id ? (
+                <Card className="max-w-lg mt-6">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Modifier l'acteur</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Select
+                      label="Type d'acteur"
+                      options={actorTypes.map((t: any) => ({ value: t.id, label: t.name }))}
+                      value={formData.actorTypeId}
+                      onChange={(e) => setFormData({ ...formData, actorTypeId: e.target.value })}
+                      placeholder="Sélectionner..."
+                      disabled
+                    />
+                    <Input
+                      label="Code"
+                      placeholder="WATTZHUB_PROD"
+                      value={formData.code}
+                      onChange={(e) =>
+                        setFormData({ ...formData, code: e.target.value.toUpperCase() })
+                      }
+                      disabled
+                    />
+                    <Input
+                      label="Nom"
+                      placeholder="WattzHub Production"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
+                  </CardContent>
+                  <CardFooter className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setEditingActor(null)}>
+                      Annuler
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        updateActorMutation.mutate({
+                          id: selectedActorData.id,
+                          data: { name: formData.name },
+                        });
+                        setEditingActor(null);
+                        setShowActorModal(false);
+                      }}
+                      isLoading={updateActorMutation.isPending}
+                      disabled={!formData.name}
+                    >
+                      Enregistrer
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ) : (
+                <>
+                  <div className="border-t pt-6 space-y-4">
+                    <div className="flex items-center gap-0 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={() => setActiveTab('config')}
+                        className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
+                          activeTab === 'config'
+                            ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
+                            : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
+                        }`}
+                      >
+                        <Settings className="h-4 w-4" />
+                        CONFIG
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('sites')}
+                        className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all border-b-2 ${
+                          activeTab === 'sites'
+                            ? 'text-blue-600 dark:text-blue-400 border-b-blue-600 dark:border-b-blue-400'
+                            : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-gray-200'
+                        }`}
+                      >
+                        <MapPin className="h-4 w-4" />
+                        SITES
+                      </button>
                     </div>
-                  )}
 
-                  {activeTab === 'sites' && (
-                    <div className="space-y-3">
-                      {actorSites.length > 0 ? (
-                        <div className="space-y-3 max-h-96 overflow-y-auto">
-                          {actorSites.map((site) => {
-                            const existingLink = existingSiteLinks.find((l) => l.siteId === site.id);
-                            const selectedDso = siteDsoSelection[site.id] || '';
-
-                            return (
-                              <div key={site.id} className="rounded-lg bg-muted/30 border border-muted overflow-hidden">
-                                <div className="flex items-center justify-between p-3">
+                    {/* Tab Content */}
+                    <div className="pt-4">
+                      {activeTab === 'config' && (
+                        <div className="space-y-4">
+                          {/* Enabled */}
+                          {implementations.length > 0 && (
+                            <div className="space-y-2">
+                              {implementations.map((impl) => (
+                                <div
+                                  key={impl.id}
+                                  className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20"
+                                >
                                   <div>
-                                    <p className="font-medium text-sm">{site.name}</p>
-                                    <p className="text-xs text-muted-foreground">{site.address || "Pas d'adresse"}</p>
+                                    <p className="font-medium text-sm">{impl.implementation?.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      v{impl.implementation?.version}
+                                    </p>
                                   </div>
-
-                                  <div className="flex items-center gap-2">
-                                    {existingLink && (
-                                      <Badge variant="success" className="text-xs">
-                                        ✓ DSO Lié
-                                      </Badge>
-                                    )}
-                                    <Link href={`/sites/${site.id}`}>
-                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                      </Button>
-                                    </Link>
-                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (selectedActor && impl.implementation?.code) {
+                                        disableImplMutation.mutate({
+                                          actorId: selectedActor,
+                                          code: impl.implementation.code,
+                                        });
+                                      }
+                                    }}
+                                    disabled={disableImplMutation.isPending}
+                                  >
+                                    <ToggleRight className="h-5 w-5 text-primary" />
+                                  </Button>
                                 </div>
+                              ))}
+                            </div>
+                          )}
 
-                                {!existingLink && (
-                                  <div className="border-t border-muted bg-background/50 p-3">
-                                    <div className="flex flex-col gap-2">
-                                      <div className="flex items-center gap-2">
-                                        <select
-                                          value={selectedDso}
-                                          onChange={(e) => {
-                                            const newDsoId = e.target.value;
-                                            setSiteDsoSelection((prev) => ({ ...prev, [site.id]: newDsoId }));
-                                            if (newDsoId) {
-                                              handleLoadDsoSites(site.id, newDsoId);
-                                            }
-                                          }}
-                                          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        >
-                                          <option value="">Sélectionner un DSO...</option>
-                                          {dsoConnections.map((conn) => (
-                                            <option key={conn.id} value={conn.id}>
-                                              {conn.label ? `${conn.label} — ${conn.baseUrl}` : conn.baseUrl}
-                                            </option>
-                                          ))}
-                                        </select>
+                          {/* Available */}
+                          {filteredAvailableImplementations.length > 0 && (
+                            <div className="space-y-2">
+                              {filteredAvailableImplementations.map((plugin) => (
+                                <div
+                                  key={plugin.id}
+                                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-muted"
+                                >
+                                  <div>
+                                    <p className="font-medium text-sm">{plugin.name}</p>
+                                    <p className="text-xs text-muted-foreground">v{plugin.version}</p>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (selectedActor) {
+                                        enableImplMutation.mutate({
+                                          actorId: selectedActor,
+                                          code: plugin.id,
+                                        });
+                                      }
+                                    }}
+                                    disabled={enableImplMutation.isPending}
+                                  >
+                                    <ToggleLeft className="h-5 w-5 text-muted-foreground" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {activeTab === 'sites' && (
+                        <div className="space-y-3">
+                          {actorSites.length > 0 ? (
+                            <div className="space-y-3 max-h-96 overflow-y-auto">
+                              {actorSites.map((site) => {
+                                // ✅ FIX: existingSiteLinks est maintenant correctement peuplé
+                                const existingLink = existingSiteLinks.find(
+                                  (l) => l.siteId === site.id
+                                );
+                                const selectedDso = siteDsoSelection[site.id] || '';
+
+                                return (
+                                  <div
+                                    key={site.id}
+                                    className="rounded-xl bg-gradient-to-br from-blue-100/80 via-white/90 to-blue-200/80 dark:from-blue-950 dark:via-gray-900 dark:to-blue-900 border-2 border-blue-300 dark:border-blue-800 shadow-md overflow-hidden"
+                                  >
+                                    <div className="flex items-center justify-between p-3">
+                                      <div>
+                                        <p className="font-extrabold text-xl text-blue-900 dark:text-blue-200 drop-shadow-md tracking-wide">
+                                          {site.name}
+                                        </p>
+                                        <p className="text-sm text-blue-700 dark:text-blue-300 font-semibold mt-1">
+                                          {site.address || "Pas d'adresse"}
+                                        </p>
                                       </div>
 
-                                      {selectedDso && (
-                                        <div className="flex items-center gap-2">
-                                          {loadingDsoSites[site.id] ? (
-                                            <div className="flex-1 px-3 py-2 text-sm text-muted-foreground italic">
-                                              Chargement des sites DSO...
-                                            </div>
-                                          ) : (siteDsoSitesMap[site.id] && siteDsoSitesMap[site.id].length > 0) ? (
+                                      <div className="flex items-center gap-2">
+                                        {existingLink && (
+                                          <Badge variant="success" className="text-xs">
+                                            ✓ DSO Lié
+                                          </Badge>
+                                        )}
+                                        <Link href={`/sites/${site.id}`}>
+                                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                          </Button>
+                                        </Link>
+                                      </div>
+                                    </div>
+
+                                    {/* ✅ Affiche le formulaire de liaison uniquement si pas encore lié */}
+                                    {!existingLink && (
+                                      <div className="border-t border-muted bg-background/50 p-3">
+                                        <div className="flex flex-col gap-2">
+                                          <div className="flex items-center gap-2">
                                             <select
-                                              value={siteDsoSiteRefSelection[site.id] || ''}
-                                              onChange={(e) =>
-                                                setSiteDsoSiteRefSelection((prev) => ({
+                                              value={selectedDso}
+                                              onChange={(e) => {
+                                                const newDsoId = e.target.value;
+                                                setSiteDsoSelection((prev) => ({
                                                   ...prev,
-                                                  [site.id]: e.target.value,
-                                                }))
-                                              }
+                                                  [site.id]: newDsoId,
+                                                }));
+                                                if (newDsoId) {
+                                                  handleLoadDsoSites(site.id, newDsoId);
+                                                }
+                                              }}
                                               className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             >
-                                              <option value="">Sélectionner un site DSO...</option>
-                                              {siteDsoSitesMap[site.id].map((dsoSite: any) => (
-                                                <option key={dsoSite.id} value={dsoSite.id}>
-                                                  {dsoSite.name}{dsoSite.address ? ` — ${dsoSite.address}` : ''}{dsoSite.city ? ` • ${dsoSite.city}` : ''}
+                                              <option value="">Sélectionner un DSO...</option>
+                                              {dsoConnections.map((conn) => (
+                                                <option key={conn.id} value={conn.id}>
+                                                  {conn.label
+                                                    ? `${conn.label} — ${conn.baseUrl}`
+                                                    : conn.baseUrl}
                                                 </option>
                                               ))}
                                             </select>
-                                          ) : (
-                                            <input
-                                              type="text"
-                                              placeholder="Entrer la ref DSO du site (ex: SITE_123)"
-                                              value={siteDsoSiteRefSelection[site.id] || ''}
-                                              onChange={(e) =>
-                                                setSiteDsoSiteRefSelection((prev) => ({
-                                                  ...prev,
-                                                  [site.id]: e.target.value,
-                                                }))
-                                              }
-                                              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            />
+                                          </div>
+
+                                          {selectedDso && (
+                                            <div className="flex items-center gap-2">
+                                              {loadingDsoSites[site.id] ? (
+                                                <div className="flex-1 px-3 py-2 text-sm text-muted-foreground italic">
+                                                  Chargement des sites DSO...
+                                                </div>
+                                              ) : siteDsoSitesMap[site.id] &&
+                                                siteDsoSitesMap[site.id].length > 0 ? (
+                                                <select
+                                                  value={siteDsoSiteRefSelection[site.id] || ''}
+                                                  onChange={(e) =>
+                                                    setSiteDsoSiteRefSelection((prev) => ({
+                                                      ...prev,
+                                                      [site.id]: e.target.value,
+                                                    }))
+                                                  }
+                                                  className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                >
+                                                  <option value="">Sélectionner un site DSO...</option>
+                                                  {siteDsoSitesMap[site.id].map((dsoSite: any) => (
+                                                    <option key={dsoSite.id} value={dsoSite.id}>
+                                                      {dsoSite.name}
+                                                      {dsoSite.address ? ` — ${dsoSite.address}` : ''}
+                                                      {dsoSite.city ? ` • ${dsoSite.city}` : ''}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              ) : (
+                                                <input
+                                                  type="text"
+                                                  placeholder="Entrer la ref DSO du site (ex: SITE_123)"
+                                                  value={siteDsoSiteRefSelection[site.id] || ''}
+                                                  onChange={(e) =>
+                                                    setSiteDsoSiteRefSelection((prev) => ({
+                                                      ...prev,
+                                                      [site.id]: e.target.value,
+                                                    }))
+                                                  }
+                                                  className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                              )}
+                                              <Button
+                                                size="sm"
+                                                onClick={() => {
+                                                  const dsoSiteRef =
+                                                    siteDsoSiteRefSelection[site.id];
+                                                  if (!dsoSiteRef) {
+                                                    alert('Veuillez entrer une référence DSO');
+                                                    return;
+                                                  }
+                                                  createSiteLinkMutation.mutate({
+                                                    siteId: site.id,
+                                                    dsoConnectionId: selectedDso,
+                                                    dsoSiteRef,
+                                                  });
+                                                }}
+                                                isLoading={createSiteLinkMutation.isPending}
+                                              >
+                                                Effectuer
+                                              </Button>
+                                            </div>
                                           )}
-                                          <Button
-                                            size="sm"
-                                            onClick={() => {
-                                              const dsoSiteRef = siteDsoSiteRefSelection[site.id];
-                                              if (!dsoSiteRef) {
-                                                alert('Veuillez entrer une référence DSO');
-                                                return;
-                                              }
-                                              createSiteLinkMutation.mutate({
-                                                siteId: site.id,
-                                                dsoConnectionId: selectedDso,
-                                                dsoSiteRef,
-                                              });
-                                            }}
-                                            isLoading={createSiteLinkMutation.isPending}
-                                          >
-                                            Effectuer
-                                          </Button>
                                         </div>
-                                      )}
-                                    </div>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="text-center py-6 text-muted-foreground">
-                          <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-xs">Aucun site lié à cet acteur</p>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6 text-muted-foreground">
+                              <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                              <p className="text-xs">Aucun site lié à cet acteur</p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </DialogContent>

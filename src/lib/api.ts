@@ -356,6 +356,7 @@ export type CreateDsoConnectionInput = {
   energyUrl?: string | null;
 };
 
+
 export type UpdateDsoConnectionInput = Partial<CreateDsoConnectionInput> & {
   isActive?: boolean;
 };
@@ -792,6 +793,23 @@ export const dsoApi = {
     apiClient.get<any[]>(`/dso-connections/${connectionId}/sites`),
 
   // Energy sync endpoint
-  syncEnergy: (siteLinkId: string) =>
-    apiClient.post<EnergySnapshot>(`/dso-connections/site-links/${siteLinkId}/sync-energy`, {}),
+syncEnergy: (siteLinkId: string) =>
+  apiClient.post<EnergySnapshot>(`/dso-connections/site-links/${siteLinkId}/sync-energy`),
+
+syncSites: (connectionId: string) =>
+  apiClient.post(`/dso-connections/${connectionId}/sync-sites`)
+
+}; 
+export const dsoOptimizationApi = {
+  createLog: (payload: {
+    dsoSiteRef: string;
+    dsoSiteName: string;
+    siteLinkId?: string;
+    energyKw: number;
+    maxCapacityKw: number;
+    computedLimitKw: number;
+    level: 'full' | 'reduced' | 'stop';
+    appliedToCpo: boolean;
+    triggeredBy: 'auto' | 'manual';
+  }) => apiClient.post('/dso-optimization/logs', payload),
 };
