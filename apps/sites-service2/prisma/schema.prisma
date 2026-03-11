@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/sites-client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model CpoConnection {
+  id                   String    @id @default(uuid())
+  actorId              String    @unique
+  baseUrl              String
+  authUrl              String?
+  authType             String
+  email                String?
+  encryptedPassword    String?
+  accessToken          String?
+  refreshToken         String?
+  tokenExpiresAt       DateTime?
+  isConnected          Boolean   @default(false)
+  fetchIntervalMinutes Int       @default(30)
+  fetchEnabled         Boolean   @default(true)
+  lastFetchAt          DateTime?
+  nextFetchAt          DateTime?
+  lastSyncAt           DateTime?
+  sites                Site[]
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([actorId])
+  @@index([isConnected])
+  @@index([fetchEnabled])
+  @@map("cpo_connections")
+}
+
+model EdfRegion {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  apiEndpoint String
+  datasetId   String
+  apiKey      String?
+  isActive    Boolean  @default(true)
+  sites       Site[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@map("edf_regions")
+}
+
+model Site {
+  id                    String        @id @default(uuid())
+  cpoConnectionId       String
+  cpoConnection         CpoConnection @relation(fields: [cpoConnectionId], references: [id], onDelete: Cascade)
+  externalId            String
+  name                  String
+  address               String?
+  edfRegionId           String?
+  edfRegion             EdfRegion?    @relation(fields: [edfRegionId], references: [id])
+  maxCapacityKw         Float?
+  currentLimitKw        Float?
+  reducedLimitKw        Float?
+  manualOverrideLimitKw Float?
+  manualOverrideUntil   DateTime?
+  manualOverrideReason  String?
+  isActive              Boolean       @default(true)
+  lastSignalValue       Int?
+  lastSignalAt          DateTime?
+  lastLimitSetAt        DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@unique([cpoConnectionId, externalId])
+  @@index([cpoConnectionId])
+  @@index([edfRegionId])
+  @@index([isActive])
+  @@map("sites")
+}

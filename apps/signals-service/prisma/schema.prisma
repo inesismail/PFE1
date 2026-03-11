@@ -1,0 +1,38 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["signals"]
+}
+
+model Signal {
+  id         String   @default(uuid())
+  time       DateTime @default(now())
+  regionCode String
+  signalType String   @default("NETWORK_SIGNAL")
+  value      Int
+  metadata   Json     @default("{}")
+  pluginId   String   @default("edf-sei")
+
+  @@id([id, time])
+  @@schema("signals")
+}
+
+model SiteLimitLog {
+  id            String   @default(uuid())
+  time          DateTime @default(now())
+  siteId        String
+  siteName      String
+  regionCode    String?
+  signalValue   Int?
+  previousLimit Float?
+  newLimit      Float
+  status        String
+  errorMessage  String?
+
+  @@id([id, time])
+  @@schema("signals")
+}

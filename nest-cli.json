@@ -1,0 +1,29 @@
+{
+  "monorepo": true,
+  "root": "apps/flexee-backend-ms",
+  "sourceRoot": "apps/flexee-backend-ms/src",
+  "compilerOptions": {
+    "webpack": true,
+    "tsConfigPath": "apps/flexee-backend-ms/tsconfig.app.json"
+  },
+  "projects": {
+    "flexee-backend-ms": {
+      "type": "application",
+      "root": "apps/flexee-backend-ms",
+      "entryFile": "main",
+      "sourceRoot": "apps/flexee-backend-ms/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/flexee-backend-ms/tsconfig.app.json"
+      }
+    },
+    "signals-service": {
+      "type": "application",
+      "root": "apps/signals-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/signals-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/signals-service/tsconfig.app.json"
+      }
+    }
+  }
+}

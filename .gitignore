@@ -1,0 +1,36 @@
+# compiled output
+/dist
+**/dist
+
+# dependencies
+node_modules
+**/node_modules
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# env files
+.env
+**/.env
+.env.*
+**/.env.*
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# coverage
+coverage
+**/coverage
+
+# temp
+tmp
+**/tmp

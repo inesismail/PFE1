@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model SystemLog {
+  id           String   @default(uuid())
+  timestamp    DateTime @default(now())
+  level        String
+  source       String
+  action       String
+  message      String
+  actorId      String?
+  actorName    String?
+  siteId       String?
+  siteName     String?
+  connectionId String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@id([id, timestamp])
+  @@index([timestamp(sort: Desc)])
+  @@index([level, timestamp(sort: Desc)])
+  @@index([source, timestamp(sort: Desc)])
+  @@index([actorId, timestamp(sort: Desc)])
+  @@map("system_logs")
+}

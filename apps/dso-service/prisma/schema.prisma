@@ -1,0 +1,79 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model DsoConnection {
+  id           String     @id @default(uuid())
+  label        String     @default("")
+  baseUrl      String
+  authEmail    String
+  authPassword String
+  tariffUrl    String?
+  energyUrl    String?
+  isActive     Boolean    @default(true)
+  lastSyncAt   DateTime?
+  siteLinks    SiteLink[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([isActive])
+  @@index([lastSyncAt(sort: Desc)])
+  @@map("dso_connections")
+}
+
+model SiteLink {
+  id              String           @id @default(uuid())
+  siteId          String
+  dsoConnectionId String
+  dsoConnection   DsoConnection    @relation(fields: [dsoConnectionId], references: [id], onDelete: Cascade)
+  dsoSiteRef      String
+  enabled         Boolean          @default(true)
+  energySnapshots EnergySnapshot[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([siteId, dsoConnectionId, dsoSiteRef])
+  @@index([siteId])
+  @@index([dsoConnectionId])
+  @@index([enabled])
+  @@map("site_links")
+}
+
+model EnergySnapshot {
+  id              String   @id @default(uuid())
+  siteLinkId      String
+  siteLink        SiteLink @relation(fields: [siteLinkId], references: [id], onDelete: Cascade)
+  energieKw       Float
+  tarif           Float
+  signal          Int
+  congestionLevel Float?
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([siteLinkId])
+  @@index([timestamp(sort: Desc)])
+  @@map("energy_snapshots")
+}
+
+model DsoOptimizationLog {
+  id              String   @id @default(uuid())
+  time            DateTime @default(now())
+  dsoSiteRef      String
+  dsoSiteName     String
+  siteLinkId      String?
+  energyKw        Float
+  maxCapacityKw   Float
+  computedLimitKw Float
+  level           String
+  appliedToCpo    Boolean  @default(false)
+  triggeredBy     String   @default("auto")
+
+  @@index([dsoSiteRef, time(sort: Desc)])
+  @@index([time(sort: Desc)])
+  @@map("dso_optimization_logs")
+}

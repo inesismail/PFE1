@@ -1,0 +1,105 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["actors"]
+}
+
+model ActorType {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  actors Actor[]
+
+  @@map("actor_types")
+  @@schema("actors")
+}
+
+model Actor {
+  id          String    @id @default(uuid())
+  actorTypeId String
+  actorType   ActorType @relation(fields: [actorTypeId], references: [id])
+
+  code     String  @unique
+  name     String
+  config   Json    @default("{}")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  implementations ActorImplementation[]
+
+  @@index([actorTypeId])
+  @@index([isActive])
+  @@map("actors")
+  @@schema("actors")
+}
+
+model ImplementationType {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  description  String?
+  configSchema Json?
+  createdAt    DateTime @default(now())
+
+  implementations Implementation[]
+
+  @@map("implementation_types")
+  @@schema("actors")
+}
+
+model Implementation {
+  id                   String             @id @default(uuid())
+  implementationTypeId String
+  implementationType   ImplementationType @relation(fields: [implementationTypeId], references: [id])
+
+  code          String  @unique
+  name          String
+  version       String
+  handlerClass  String
+  defaultConfig Json    @default("{}")
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  actorImplementations ActorImplementation[]
+
+  @@index([implementationTypeId])
+  @@index([isActive])
+  @@map("implementations")
+  @@schema("actors")
+}
+
+model ActorImplementation {
+  id               String @id @default(uuid())
+  actorId          String
+  implementationId String
+
+  actor          Actor          @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  implementation Implementation @relation(fields: [implementationId], references: [id])
+
+  config     Json      @default("{}")
+  priority   Int       @default(0)
+  isEnabled  Boolean   @default(true)
+  enabledAt  DateTime?
+  disabledAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([actorId, implementationId])
+  @@index([actorId])
+  @@index([implementationId])
+  @@index([isEnabled])
+  @@map("actor_implementations")
+  @@schema("actors")
+}
