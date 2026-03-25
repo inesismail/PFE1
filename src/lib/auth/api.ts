@@ -157,17 +157,18 @@ class AuthApiClient {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     const response = await this.api.post<AuthResponse>('/auth/login', credentials);
     
+    const expiry = response.data.accessTokenExpiry ?? (Date.now() + 15 * 60 * 1000);
     tokenStorage.setTokens(
       response.data.accessToken,
       response.data.refreshToken,
-      response.data.accessTokenExpiry
+      expiry
     );
     
     return response.data;
   }
 
   async register(data: RegisterData): Promise<{ message: string; user: User }> {
-    const response = await this.api.post<{ message: string; user: User }>('/auth/register', data);
+    const response = await this.api.post<{ message: string; user: User }>('/auth/signup', data);
     // Note: Registration doesn't auto-login - user must login separately
     return response.data;
   }
@@ -186,6 +187,8 @@ class AuthApiClient {
   async logoutAll(): Promise<void> {
     try {
       await this.api.post('/auth/logout-all');
+    } catch {
+      // endpoint may not be implemented yet
     } finally {
       tokenStorage.clearTokens();
     }
@@ -201,10 +204,11 @@ class AuthApiClient {
       refreshToken,
     });
 
+    const expiry = response.data.accessTokenExpiry ?? (Date.now() + 15 * 60 * 1000);
     tokenStorage.setTokens(
       response.data.accessToken,
       response.data.refreshToken,
-      response.data.accessTokenExpiry
+      expiry
     );
 
     return {
@@ -220,6 +224,16 @@ class AuthApiClient {
 
   async changePassword(data: ChangePasswordData): Promise<void> {
     await this.api.post('/auth/change-password', data);
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string; resetLink?: string; token?: string }> {
+    const response = await this.api.post('/auth/forgot-password', { email });
+    return response.data;
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const response = await this.api.post('/auth/reset-password', { token, newPassword });
+    return response.data;
   }
 
   // ============================================================================

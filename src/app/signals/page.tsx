@@ -64,9 +64,15 @@ export default function SignalsPage() {
     enabled: !!selectedRegion,
   });
 
+  interface SignalStatsData {
+    favorablePercentage?: number;
+    unfavorablePercentage?: number;
+    totalReadings?: number;
+  }
+
   const { data: signalStats } = useQuery({
     queryKey: ['signal-stats', selectedRegion, historyHours],
-    queryFn: () => signalsApi.getStats(selectedRegion, historyHours),
+    queryFn: () => signalsApi.getStats(selectedRegion, historyHours) as Promise<SignalStatsData>,
     enabled: !!selectedRegion,
   });
 

@@ -58,8 +58,8 @@ export interface AuthResponse {
   user: User;
   accessToken: string;
   refreshToken: string;
-  accessTokenExpiry: number;
-  refreshTokenExpiry: number;
+  accessTokenExpiry?: number;
+  refreshTokenExpiry?: number;
 }
 
 export interface AuthState {

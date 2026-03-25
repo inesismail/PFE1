@@ -63,7 +63,7 @@ export default function DsoPageContent() {
   });
 
   const [showPassword, setShowPassword] = useState(false);
-  const [testResult, setTestResult] = useState<{ isValid: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ isValid: boolean; message: string; dsoLabel?: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
   // Get all DSO connections
@@ -111,17 +111,13 @@ export default function DsoPageContent() {
       if (!response.ok || !data?.isValid) {
         const msg = data?.message || 'Connexion invalide';
         setTestResult({ isValid: false, message: msg });
-        toast.error(
-          `Test échoué : ${msg}\nURLs testées : ${(data?.testedUrls || []).join(', ')}`
-        );
+        toast.error(msg);
         return false;
       }
 
       const msg = data?.message || 'Connexion valide';
-      setTestResult({ isValid: true, message: msg });
-      toast.success(
-        `Test de connexion vérifié !\nURLs testées : ${(data?.testedUrls || []).join(', ')}`
-      );
+      setTestResult({ isValid: true, message: msg, dsoLabel: data?.dsoLabel });
+      toast.success('Connexion testée avec succès');
       return true;
     } catch {
       setTestResult({ isValid: false, message: 'Erreur de connexion' });
@@ -136,7 +132,7 @@ export default function DsoPageContent() {
   const createMutation = useMutation({
     mutationFn: (data: FormData) =>
       dsoApi.createConnection({
-        label: data.label,
+        label: data.label || testResult?.dsoLabel || '',
         baseUrl: data.baseUrl,
         authEmail: data.authEmail,
         authPassword: data.authPassword,
@@ -178,6 +174,18 @@ export default function DsoPageContent() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || 'Erreur lors de la mise à jour');
+    },
+  });
+
+  // Toggle DSO connection active/pause
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      dsoApi.toggleConnection(id, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dso-connections'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Erreur lors du changement de statut');
     },
   });
 
@@ -495,12 +503,12 @@ export default function DsoPageContent() {
                       variant={isActive ? 'secondary' : 'primary'}
                       size="sm"
                       onClick={() => {
-                        updateMutation.mutate({
+                        toggleMutation.mutate({
                           id: connection.id,
-                          data: { isActive: !isActive },
+                          isActive: !isActive,
                         });
                       }}
-                      disabled={updateMutation.isPending}
+                      disabled={toggleMutation.isPending}
                     >
                       {isActive ? (
                         <>

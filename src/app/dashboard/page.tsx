@@ -16,6 +16,8 @@ import {
   Users,
   XCircle,
   Zap,
+  Shield,
+  Signal,
 } from 'lucide-react';
 import { Actor, actorsApi, cpoApi, processorApi, signalsApi, sitesApi } from '@/lib/api';
 import {
@@ -38,82 +40,37 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  RadialBarChart,
+  RadialBar,
+} from 'recharts';
 
 import { Header } from '@/components/layout';
 import Link from 'next/link';
 import { formatRelativeTime } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
 // EDF Regions configuration with colors
-const EDF_REGIONS = {
-  CORSE: { name: 'Corse', emoji: '🏝️', color: 'blue' },
-  GUADELOUPE: { name: 'Guadeloupe', emoji: '🌴', color: 'emerald' },
-  MARTINIQUE: { name: 'Martinique', emoji: '🌺', color: 'purple' },
-  GUYANE: { name: 'Guyane', emoji: '🌿', color: 'amber' },
-  REUNION: { name: 'La Réunion', emoji: '🌋', color: 'rose' },
+const EDF_REGIONS: Record<string, { name: string; emoji: string; color: string; chartColor: string }> = {
+  CORSE: { name: 'Corse', emoji: '🏝️', color: 'blue', chartColor: '#3b82f6' },
+  GUADELOUPE: { name: 'Guadeloupe', emoji: '🌴', color: 'emerald', chartColor: '#10b981' },
+  MARTINIQUE: { name: 'Martinique', emoji: '🌺', color: 'purple', chartColor: '#a855f7' },
+  GUYANE: { name: 'Guyane', emoji: '🌿', color: 'amber', chartColor: '#f59e0b' },
+  REUNION: { name: 'La Réunion', emoji: '🌋', color: 'rose', chartColor: '#f43f5e' },
 };
 
-// Stat Card Component
-function StatCard({
-  title,
-  value,
-  total,
-  icon: Icon,
-  color,
-  status,
-  statusText,
-  href,
-}: {
-  title: string;
-  value: number;
-  total: number;
-  icon: React.ElementType;
-  color: string;
-  status: 'success' | 'warning' | 'muted';
-  statusText: string;
-  href: string;
-}) {
-  const colorClasses = {
-    blue: 'border-l-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    purple: 'border-l-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400',
-    emerald: 'border-l-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    amber: 'border-l-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  };
-
-  const statusClasses = {
-    success: 'text-emerald-600 dark:text-emerald-400',
-    warning: 'text-amber-600 dark:text-amber-400',
-    muted: 'text-muted-foreground',
-  };
-
-  return (
-    <Link href={href} className="block group">
-      <Card className={`border-l-4 ${colorClasses[color as keyof typeof colorClasses].split(' ')[0]} hover:shadow-lg transition-all duration-300 hover:-translate-y-1`}>
-        <CardContent className="pt-6">
-          <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-                {title}
-              </p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold tracking-tight">{value}</span>
-                <span className="text-lg text-muted-foreground">/ {total}</span>
-              </div>
-              <p className={`text-sm flex items-center gap-1.5 ${statusClasses[status]}`}>
-                {status === 'success' && <CheckCircle2 className="h-3.5 w-3.5" />}
-                {status === 'warning' && <AlertTriangle className="h-3.5 w-3.5" />}
-                {statusText}
-              </p>
-            </div>
-            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${colorClasses[color as keyof typeof colorClasses].split(' ').slice(1).join(' ')}`}>
-              <Icon className="h-7 w-7" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
+const PIE_COLORS = ['#22c55e', '#ef4444', '#94a3b8'];
 
 // Signal Region Card Component
 function SignalCard({
@@ -153,8 +110,8 @@ function SignalCard({
       }`}
     >
       <CardContent className="p-5">
-        <div className="flex items-start justify-between mb-4">
-          <span className="text-3xl">{region.emoji}</span>
+        <div className="flex items-start justify-between mb-3">
+          <span className="text-2xl">{region.emoji}</span>
           {hasData && (
             <StatusDot
               status={isFavorable ? 'online' : 'error'}
@@ -163,32 +120,32 @@ function SignalCard({
             />
           )}
         </div>
-        <h3 className="font-semibold text-lg">{region.name}</h3>
-        <div className="mt-3">
+        <h3 className="font-semibold">{region.name}</h3>
+        <div className="mt-2">
           {hasData ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {isFavorable ? (
                 <>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
                     Favorable
                   </span>
                 </>
               ) : (
                 <>
-                  <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                  <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                  <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  <span className="text-xs font-medium text-red-700 dark:text-red-300">
                     Défavorable
                   </span>
                 </>
               )}
             </div>
           ) : (
-            <span className="text-sm text-muted-foreground">Pas de données</span>
+            <span className="text-xs text-muted-foreground">Pas de données</span>
           )}
         </div>
         {hasData && signal?.time && (
-          <p className="mt-3 text-xs text-muted-foreground flex items-center gap-1.5">
+          <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
             <Clock className="h-3 w-3" />
             {formatRelativeTime(signal.time)}
           </p>
@@ -196,11 +153,7 @@ function SignalCard({
       </CardContent>
       <div
         className={`h-1 ${
-          !hasData
-            ? 'bg-muted'
-            : isFavorable
-            ? 'bg-emerald-500'
-            : 'bg-red-500'
+          !hasData ? 'bg-muted' : isFavorable ? 'bg-emerald-500' : 'bg-red-500'
         }`}
       />
     </Card>
@@ -221,14 +174,14 @@ function QuickActionLink({
   description: string;
   color: string;
 }) {
-  const colorClasses = {
+  const colorClasses: Record<string, string> = {
     blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50',
     purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 group-hover:bg-purple-200 dark:group-hover:bg-purple-900/50',
     emerald: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/50',
     amber: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/50',
   };
 
-  const hoverBorder = {
+  const hoverBorder: Record<string, string> = {
     blue: 'hover:border-blue-300 dark:hover:border-blue-700',
     purple: 'hover:border-purple-300 dark:hover:border-purple-700',
     emerald: 'hover:border-emerald-300 dark:hover:border-emerald-700',
@@ -238,18 +191,18 @@ function QuickActionLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-4 p-4 rounded-xl border border-border ${hoverBorder[color as keyof typeof hoverBorder]} hover:bg-accent/50 transition-all duration-200 group`}
+      className={`flex items-center gap-4 p-4 rounded-xl border border-border ${hoverBorder[color]} hover:bg-accent/50 transition-all duration-200 group`}
     >
       <div
-        className={`h-12 w-12 rounded-xl flex items-center justify-center transition-colors ${colorClasses[color as keyof typeof colorClasses]}`}
+        className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors shrink-0 ${colorClasses[color]}`}
       >
-        <Icon className="h-6 w-6" />
+        <Icon className="h-5 w-5" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-semibold truncate">{title}</p>
-        <p className="text-sm text-muted-foreground truncate">{description}</p>
+        <p className="font-semibold text-sm truncate">{title}</p>
+        <p className="text-xs text-muted-foreground truncate">{description}</p>
       </div>
-      <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-1 transition-transform shrink-0" />
     </Link>
   );
 }
@@ -292,6 +245,8 @@ export default function DashboardPage() {
   const signalValues = latestSignals ? Object.values(latestSignals).filter((s) => s !== null) : [];
   const favorableSignals = signalValues.filter((s) => s?.value === 1).length;
   const totalRegions = Object.keys(EDF_REGIONS).length;
+  const unfavorableSignals = signalValues.length - favorableSignals;
+  const noDataSignals = totalRegions - signalValues.length;
 
   // System health score
   const healthScore = Math.round(
@@ -300,115 +255,287 @@ export default function DashboardPage() {
       (favorableSignals / totalRegions) * 30)
   );
 
+  // Chart data
+  const signalPieData = useMemo(() => [
+    { name: 'Favorable', value: favorableSignals },
+    { name: 'Défavorable', value: unfavorableSignals },
+    ...(noDataSignals > 0 ? [{ name: 'Pas de données', value: noDataSignals }] : []),
+  ].filter(d => d.value > 0), [favorableSignals, unfavorableSignals, noDataSignals]);
+
+  const regionSignalBarData = useMemo(() =>
+    Object.entries(EDF_REGIONS).map(([key, region]) => {
+      const signal = latestSignals?.[key];
+      return {
+        name: region.name,
+        emoji: region.emoji,
+        value: signal ? (signal.value === 1 ? 1 : -1) : 0,
+        fill: signal ? (signal.value === 1 ? '#22c55e' : '#ef4444') : '#94a3b8',
+        status: signal ? (signal.value === 1 ? 'Favorable' : 'Défavorable') : 'N/A',
+      };
+    }),
+  [latestSignals]);
+
+  const healthRadialData = useMemo(() => [
+    { name: 'Santé', value: healthScore, fill: healthScore >= 70 ? '#22c55e' : healthScore >= 40 ? '#f59e0b' : '#ef4444' },
+  ], [healthScore]);
+
+  const systemMetrics = useMemo(() => [
+    { name: 'Connexions', active: activeConnections, total: totalConnections, color: '#3b82f6' },
+    { name: 'Sites', active: assignedSites, total: totalSites, color: '#a855f7' },
+    { name: 'Acteurs', active: activeActors, total: totalActors, color: '#10b981' },
+    { name: 'Signaux', active: favorableSignals, total: totalRegions, color: '#f59e0b' },
+  ], [activeConnections, totalConnections, assignedSites, totalSites, activeActors, totalActors, favorableSignals, totalRegions]);
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
         <Header
           title="Tableau de Bord"
-          description="Vue d'ensemble du système Flexee - Gestion intelligente des signaux EDF"
+          description="Vue d'ensemble du système Flexee — Gestion intelligente des signaux EDF"
         />
 
-        <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
-          {/* Hero Stats Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* System Health Card */}
-            <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-0 shadow-lg hover:shadow-xl transition-all overflow-hidden relative group">
-              <div className="absolute inset-0 bg-grid-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              <CardContent className="pt-6 relative">
+        <div className="p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+
+          {/* ── Top Row: Health + 4 KPIs ────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* Health Score — Radial Gauge */}
+            <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-0 shadow-lg hover:shadow-xl transition-all overflow-hidden relative group md:row-span-1">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.08),transparent)] pointer-events-none" />
+              <CardContent className="pt-5 pb-4 relative">
                 <div className="flex flex-col items-center text-center">
-                  <div className="relative">
-                    <div className="w-28 h-28 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center ring-4 ring-white/10 group-hover:ring-white/20 transition-all">
-                      <div className="text-center">
-                        <span className="text-4xl font-bold">{healthScore}</span>
-                        <span className="text-2xl">%</span>
-                      </div>
-                    </div>
-                    <div className="absolute -bottom-1 -right-1 w-10 h-10 bg-background rounded-full flex items-center justify-center shadow-lg ring-2 ring-primary/20">
-                      {healthScore >= 70 ? (
-                        <CheckCircle2 className="h-6 w-6 text-emerald-500" />
-                      ) : healthScore >= 40 ? (
-                        <AlertTriangle className="h-6 w-6 text-amber-500" />
-                      ) : (
-                        <XCircle className="h-6 w-6 text-red-500" />
-                      )}
-                    </div>
+                  <div className="h-28 w-28">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadialBarChart
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="70%"
+                        outerRadius="100%"
+                        startAngle={180}
+                        endAngle={0}
+                        data={healthRadialData}
+                        barSize={10}
+                      >
+                        <RadialBar
+                          dataKey="value"
+                          cornerRadius={5}
+                          background={{ fill: 'rgba(255,255,255,0.15)' }}
+                        />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
                   </div>
-                  <p className="mt-5 text-lg font-bold opacity-95">Santé Système</p>
-                  <p className="text-sm opacity-80 mt-1">
-                    {healthScore >= 70
-                      ? 'Excellent état'
-                      : healthScore >= 40
-                      ? 'Attention requise'
-                      : 'Action nécessaire'}
+                  <div className="-mt-10">
+                    <span className="text-3xl font-bold">{healthScore}</span>
+                    <span className="text-lg">%</span>
+                  </div>
+                  <p className="text-sm font-semibold opacity-90 mt-2">Santé Système</p>
+                  <p className="text-xs opacity-70">
+                    {healthScore >= 70 ? 'Excellent' : healthScore >= 40 ? 'Attention requise' : 'Action nécessaire'}
                   </p>
-                  <div className="flex items-center gap-2 mt-4 text-xs opacity-70">
-                    <Activity className="h-3.5 w-3.5" />
-                    Mis à jour en temps réel
-                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Key Metrics */}
-            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              <StatCard
-                title="Connexions CPO"
-                value={activeConnections}
-                total={totalConnections}
-                icon={Plug}
-                color="blue"
-                href="/connections"
-                status={activeConnections === totalConnections && totalConnections > 0 ? 'success' : totalConnections === 0 ? 'muted' : 'warning'}
-                statusText={
-                  activeConnections === totalConnections && totalConnections > 0
-                    ? 'Toutes actives'
-                    : totalConnections === 0
-                    ? 'Aucune connexion'
-                    : `${totalConnections - activeConnections} en attente`
-                }
-              />
-              <StatCard
-                title="Sites Configurés"
-                value={assignedSites}
-                total={totalSites}
-                icon={Building2}
-                color="purple"
-                href="/sites"
-                status={assignedSites === totalSites && totalSites > 0 ? 'success' : totalSites === 0 ? 'muted' : 'warning'}
-                statusText={
-                  assignedSites === totalSites && totalSites > 0
-                    ? 'Tous assignés'
-                    : totalSites === 0
-                    ? 'Aucun site'
-                    : `${totalSites - assignedSites} sans région`
-                }
-              />
-              <StatCard
-                title="Acteurs Actifs"
-                value={activeActors}
-                total={totalActors}
-                icon={Users}
-                color="emerald"
-                href="/actors"
-                status={activeActors === totalActors && totalActors > 0 ? 'success' : totalActors === 0 ? 'muted' : 'warning'}
-                statusText={
-                  activeActors === totalActors && totalActors > 0
-                    ? 'Tous opérationnels'
-                    : totalActors === 0
-                    ? 'Aucun acteur'
-                    : `${totalActors - activeActors} en veille`
-                }
-              />
-            </div>
+            {/* KPI Cards */}
+            <Link href="/connections" className="block group">
+              <Card className="border-l-4 border-l-blue-500 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full">
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Connexions CPO</p>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className="text-3xl font-bold">{activeConnections}</span>
+                        <span className="text-sm text-muted-foreground">/ {totalConnections}</span>
+                      </div>
+                      <p className={`text-xs mt-1 flex items-center gap-1 ${activeConnections === totalConnections && totalConnections > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                        {activeConnections === totalConnections && totalConnections > 0 ? (
+                          <><CheckCircle2 className="h-3 w-3" /> Toutes actives</>
+                        ) : totalConnections === 0 ? 'Aucune connexion' : (
+                          <><AlertTriangle className="h-3 w-3 text-amber-500" /> {totalConnections - activeConnections} en attente</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center transition-transform group-hover:scale-110">
+                      <Plug className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/sites" className="block group">
+              <Card className="border-l-4 border-l-purple-500 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full">
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sites Configurés</p>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className="text-3xl font-bold">{assignedSites}</span>
+                        <span className="text-sm text-muted-foreground">/ {totalSites}</span>
+                      </div>
+                      <p className={`text-xs mt-1 flex items-center gap-1 ${assignedSites === totalSites && totalSites > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                        {assignedSites === totalSites && totalSites > 0 ? (
+                          <><CheckCircle2 className="h-3 w-3" /> Tous assignés</>
+                        ) : totalSites === 0 ? 'Aucun site' : (
+                          <><AlertTriangle className="h-3 w-3 text-amber-500" /> {totalSites - assignedSites} sans région</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-purple-500/10 flex items-center justify-center transition-transform group-hover:scale-110">
+                      <Building2 className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/actors" className="block group">
+              <Card className="border-l-4 border-l-emerald-500 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full">
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Acteurs Actifs</p>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className="text-3xl font-bold">{activeActors}</span>
+                        <span className="text-sm text-muted-foreground">/ {totalActors}</span>
+                      </div>
+                      <p className={`text-xs mt-1 flex items-center gap-1 ${activeActors === totalActors && totalActors > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                        {activeActors === totalActors && totalActors > 0 ? (
+                          <><CheckCircle2 className="h-3 w-3" /> Tous opérationnels</>
+                        ) : totalActors === 0 ? 'Aucun acteur' : (
+                          <><AlertTriangle className="h-3 w-3 text-amber-500" /> {totalActors - activeActors} en veille</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center transition-transform group-hover:scale-110">
+                      <Users className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/signals" className="block group">
+              <Card className="border-l-4 border-l-amber-500 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full">
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Signaux Favorables</p>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className="text-3xl font-bold">{favorableSignals}</span>
+                        <span className="text-sm text-muted-foreground">/ {totalRegions}</span>
+                      </div>
+                      <p className={`text-xs mt-1 flex items-center gap-1 ${favorableSignals === totalRegions ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                        {favorableSignals === totalRegions ? (
+                          <><CheckCircle2 className="h-3 w-3" /> Tout favorable</>
+                        ) : (
+                          <><AlertTriangle className="h-3 w-3 text-amber-500" /> {totalRegions - favorableSignals} défavorable(s)</>
+                        )}
+                      </p>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-amber-500/10 flex items-center justify-center transition-transform group-hover:scale-110">
+                      <Zap className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
 
-          {/* Signal Status Map */}
+          {/* ── Charts Row: Signal Distribution + System Metrics ─ */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Pie chart - Signal distribution */}
+            <Card className="shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Signal className="h-4 w-4 text-primary" />
+                  Distribution des Signaux
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {signalPieData.length > 0 ? (
+                  <div className="flex flex-col items-center">
+                    <div className="h-48 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={signalPieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={50}
+                            outerRadius={75}
+                            paddingAngle={4}
+                            dataKey="value"
+                            strokeWidth={0}
+                          >
+                            {signalPieData.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip formatter={(value, name) => [`${value} région(s)`, name as string]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-4 mt-1">
+                      {signalPieData.map((entry, i) => (
+                        <div key={entry.name} className="flex items-center gap-2">
+                          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                          <span className="text-xs text-muted-foreground">{entry.name} ({entry.value})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">
+                    Aucune donnée
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Bar chart - System metrics overview */}
+            <Card className="lg:col-span-2 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-primary" />
+                  Vue System — Actifs vs Total
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={systemMetrics} barGap={8}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <RechartsTooltip
+                        formatter={(value, name) => [value, name === 'active' ? 'Actifs' : 'Total']}
+                        contentStyle={{
+                          borderRadius: '8px',
+                          border: '1px solid hsl(var(--border))',
+                          background: 'hsl(var(--card))',
+                          boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                        }}
+                      />
+                      <Bar dataKey="total" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} name="Total" />
+                      <Bar dataKey="active" radius={[4, 4, 0, 0]} name="Actifs">
+                        {systemMetrics.map((entry, index) => (
+                          <Cell key={`active-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ── Signal Map ──────────────────────────────────────── */}
           <Card className="overflow-hidden shadow-sm">
             <CardHeader className="bg-gradient-to-r from-muted/50 to-muted/30 border-b">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Zap className="h-6 w-6 text-primary" />
+                  <div className="h-10 w-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                    <Zap className="h-5 w-5 text-primary" />
                   </div>
                   <div>
                     <CardTitle className="text-lg">Signaux EDF en Temps Réel</CardTitle>
@@ -453,7 +580,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Active Processes & Quick Actions */}
+          {/* ── Active Processes & Quick Actions ──────────────── */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 lg:gap-6">
             {/* Active Processing Jobs */}
             <Card className="xl:col-span-2 shadow-sm">
@@ -483,7 +610,7 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-4 min-w-0">
                             <div
-                              className={`h-11 w-11 rounded-xl flex items-center justify-center shrink-0 ${
+                              className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
                                 status.jobActive
                                   ? 'bg-emerald-100 dark:bg-emerald-900/30'
                                   : 'bg-muted'
@@ -582,7 +709,7 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          {/* Connections Table */}
+          {/* ── Connections Table ─────────────────────────────── */}
           <Card className="shadow-sm overflow-hidden">
             <CardHeader className="border-b bg-muted/30">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -629,8 +756,8 @@ export default function DashboardPage() {
                           <TableRow key={conn.id} className="group">
                             <TableCell>
                               <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 bg-muted rounded-xl flex items-center justify-center group-hover:bg-muted/80 transition-colors">
-                                  <Users className="h-5 w-5 text-muted-foreground" />
+                                <div className="h-9 w-9 bg-muted rounded-xl flex items-center justify-center group-hover:bg-muted/80 transition-colors">
+                                  <Users className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <span className="font-medium">
                                   {conn.actor?.name || 'N/A'}

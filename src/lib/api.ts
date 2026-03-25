@@ -47,7 +47,9 @@ export interface Transaction {
   id: string;
   chargeBoxId?: string;
   connectorId?: number;
+  tagID?: string;
   idTag?: string;
+  tag?: { visualID?: string; id?: string };
   startTimestamp: string;
   startValue: number;
   stopTimestamp?: string;
@@ -203,6 +205,7 @@ export interface EdfRegion {
   id: string;
   code: string;
   name: string;
+  provider: string;
   apiEndpoint: string;
   datasetId: string;
   isActive: boolean;
@@ -259,7 +262,10 @@ export type LogSource =
   | 'EdfSignal'
   | 'SiteLimit'
   | 'System'
-  | 'Plugin';
+  | 'Plugin'
+  | 'DsoService'
+  | 'ActorsService'
+  | 'AuthService';
 
 export interface SystemLog {
   id: string;
@@ -330,6 +336,7 @@ export interface SiteLink {
   dsoConnectionId: string;
   dsoSiteRef: string;
   enabled: boolean;
+  optimizationEnabled: boolean;
   createdAt: string;
   updatedAt: string;
   energySnapshots?: EnergySnapshot[];
@@ -366,7 +373,7 @@ export type UpdateDsoConnectionInput = Partial<CreateDsoConnectionInput> & {
 // ============================================================================
 
 export const actorsApi = {
-  getTypes: () => apiClient.get<ActorType[]>('/actors/types'),
+  getTypes: () => apiClient.get<ActorType[]>('/actor-types'),
 
   getAll: (type?: string) =>
     apiClient.get<Actor[]>(`/actors${type ? `?type=${type}` : ''}`),
@@ -377,24 +384,24 @@ export const actorsApi = {
     apiClient.post<Actor>('/actors', data),
 
   update: (id: string, data: Partial<Actor>) =>
-    apiClient.put<Actor>(`/actors/${id}`, data),
+    apiClient.patch<Actor>(`/actors/${id}`, data),
 
   delete: (id: string) => apiClient.delete(`/actors/${id}`),
 
   getImplementations: (id: string) =>
     apiClient.get<ActorImplementation[]>(`/actors/${id}/implementations`),
 
-  getAvailableImplementations: (id: string) =>
-    apiClient.get(`/actors/${id}/implementations/available`),
+  getAvailableImplementations: () =>
+    apiClient.get(`/implementations/available`),
 
   enableImplementation: (
     id: string,
     implementationCode: string,
-    config?: Record<string, unknown>
-  ) => apiClient.post(`/actors/${id}/implementations`, { implementationCode, config }),
+    _config?: Record<string, unknown>
+  ) => apiClient.post(`/actors/${id}/implementations/${implementationCode}/enable`),
 
   disableImplementation: (id: string, code: string) =>
-    apiClient.delete(`/actors/${id}/implementations/${code}`),
+    apiClient.post(`/actors/${id}/implementations/${code}/disable`),
 };
 
 // ============================================================================
@@ -442,11 +449,11 @@ export const sitesApi = {
   getAll: (connectionId?: string) =>
     apiClient.get<LocalSite[]>(`/sites${connectionId ? `?connectionId=${connectionId}` : ''}`),
 
-  getWithStatus: () => apiClient.get<LocalSite[]>('/sites/with-status'),
+  getWithStatus: () => apiClient.get<LocalSite[]>('/sites'),
 
   getById: (id: string) => apiClient.get<LocalSite>(`/sites/${id}`),
 
-  update: (id: string, data: Partial<LocalSite>) => apiClient.put<LocalSite>(`/sites/${id}`, data),
+  update: (id: string, data: Partial<LocalSite>) => apiClient.patch<LocalSite>(`/sites/${id}`, data),
 
   assignRegion: (id: string, edfRegionId: string, reducedLimitKw?: number) =>
     apiClient.post(`/sites/${id}/assign-region`, { edfRegionId, reducedLimitKw }),
@@ -464,11 +471,11 @@ export const sitesApi = {
 
   clearOverride: (id: string) => apiClient.delete(`/sites/${id}/override`),
 
-  getOverride: (id: string) => apiClient.get(`/sites/${id}/override`),
+  getOverride: (id: string) => apiClient.get(`/sites/${id}/limit-status`),
 };
 
 // ============================================================================
-// EDF REGIONS API (Local Backend)
+// REGIONS API (Local Backend)
 // ============================================================================
 
 export const regionsApi = {
@@ -476,7 +483,7 @@ export const regionsApi = {
 
   getById: (id: string) => apiClient.get<EdfRegion>(`/edf-regions/${id}`),
 
-  create: (data: { code: string; name: string; apiEndpoint: string; datasetId: string }) =>
+  create: (data: { code: string; name: string; provider?: string; apiEndpoint: string; datasetId: string }) =>
     apiClient.post<EdfRegion>('/edf-regions', data),
 
   update: (id: string, data: Partial<EdfRegion>) =>
@@ -488,24 +495,24 @@ export const regionsApi = {
 };
 
 // ============================================================================
-// EDF SIGNALS API (Local Backend)
+// SIGNALS API (Local Backend)
 // ============================================================================
 
 export const signalsApi = {
-  fetchAll: () => apiClient.post('/edf-signals/fetch'),
+  fetchAll: () => apiClient.post('/signals/fetch-all'),
 
-  getLatest: () => apiClient.get<Record<string, Signal>>('/edf-signals/latest'),
+  getLatest: () => apiClient.get<Record<string, Signal>>('/signals/status'),
 
-  getByRegion: (code: string) => apiClient.get<Signal>(`/edf-signals/region/${code}`),
+  getByRegion: (code: string) => apiClient.get<Signal>(`/signals/latest/${code}`),
 
   getCurrentByRegion: (code: string) =>
-    apiClient.get<Signal>(`/edf-signals/region/${code}/current`),
+    apiClient.get<Signal>(`/signals/latest/${code}`),
 
   getHistory: (code: string, hours?: number) =>
-    apiClient.get<Signal[]>(`/edf-signals/region/${code}/history${hours ? `?hours=${hours}` : ''}`),
+    apiClient.get<Signal[]>(`/signals${hours ? `?regionCode=${code}&limit=${hours}` : `?regionCode=${code}`}`),
 
   getStats: (code: string, hours?: number) =>
-    apiClient.get(`/edf-signals/region/${code}/stats${hours ? `?hours=${hours}` : ''}`),
+    apiClient.get(`/signals?regionCode=${code}&limit=${hours ?? 24}`),
 };
 
 // ============================================================================
@@ -529,7 +536,19 @@ export const processorApi = {
 // ============================================================================
 
 export const logsApi = {
-  getAll: (params?: LogsQueryParams) => apiClient.get<LogsResponse>('/logs'),
+  getAll: (params?: LogsQueryParams) => {
+    const searchParams = new URLSearchParams();
+    if (params?.level) searchParams.set('level', params.level);
+    if (params?.source) searchParams.set('source', params.source);
+    if (params?.actorId) searchParams.set('actorId', params.actorId);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.from) searchParams.set('from', params.from);
+    if (params?.to) searchParams.set('to', params.to);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    const qs = searchParams.toString();
+    return apiClient.get<LogsResponse>(`/logs${qs ? `?${qs}` : ''}`);
+  },
 
   getStats: (hours?: number) => apiClient.get<LogsStats>(`/logs/stats${hours ? `?hours=${hours}` : ''}`),
 
@@ -538,46 +557,78 @@ export const logsApi = {
 };
 
 // ============================================================================
+// LOCAL CHARGING STATIONS CACHE API (Local Backend)
+// ============================================================================
+
+export const localChargingStationsApi = {
+  getAll: (connectionId?: string) =>
+    apiClient.get<any[]>(`/charging-stations${connectionId ? `?connectionId=${connectionId}` : ''}`),
+
+  sync: () => apiClient.post('/charging-stations/sync'),
+
+  syncByConnection: (connectionId: string) =>
+    apiClient.post(`/charging-stations/sync/${connectionId}`),
+};
+
+// ============================================================================
 // WATTZHUB CPO API (External API)
 // ============================================================================
 
 export const chargingStationsApi = {
-  getAll: (skip?: number, limit?: number) =>
-    apiClient.get<ChargingStation[]>(
-      `/cpo/charging-stations${
-        skip || limit
-          ? `?${skip ? `skip=${skip}` : ''}${limit ? `&limit=${limit}` : ''}`
-          : ''
-      }`
-    ),
+  getAll: async (skip?: number, limit?: number) => {
+    try {
+      return await apiClient.get<ChargingStation[]>(
+        `/cpo/charging-stations?Issuer=true&WithSite=true&WithSiteArea=true&WithUser=true&Limit=${limit ?? 100}&Skip=${skip ?? 0}&SortFields=id`
+      );
+    } catch (err: any) {
+      if (err?.response?.status === 502 || err?.response?.status === 503) {
+        // WattzHub down — fallback to local cache
+        return await localChargingStationsApi.getAll();
+      }
+      throw err;
+    }
+  },
 
-  getById: (id: string) => apiClient.get<ChargingStation>(`/cpo/charging-stations/${id}`),
+  getById: (id: string) =>
+    apiClient.get<ChargingStation>(`/cpo/charging-stations/${id}?WithSite=true&WithSiteArea=true`),
 
-  getTransactions: (id: string) => apiClient.get<Transaction[]>(`/cpo/charging-stations/${id}/transactions`),
+  getTransactions: (id: string) =>
+    apiClient.get<Transaction[]>(`/cpo/charging-stations/${id}/transactions?WithTag=true&SortFields=-timestamp&Limit=50`),
 
   getStatus: (id: string) => apiClient.get(`/cpo/charging-stations/${id}/status`),
 
-  reset: (id: string) => apiClient.put(`/cpo/charging-stations/${id}/reset`, {}),
+  reset: (id: string) =>
+    apiClient.put(`/cpo/charging-stations/${id}/reset`, { args: { type: 'Hard' } }),
 
-  clearCache: (id: string) => apiClient.put(`/cpo/charging-stations/${id}/cache/clear`, {}),
+  clearCache: (id: string) =>
+    apiClient.put(`/cpo/charging-stations/${id}/cache/clear`, undefined),
 
   remoteStart: (id: string, connectorId: number, idTag?: string) =>
-    apiClient.put(`/cpo/charging-stations/${id}/remote/start`, { connectorId, idTag }),
+    apiClient.put(`/cpo/charging-stations/${id}/remote/start`, {
+      args: { connectorId, ...(idTag ? { tagID: idTag } : {}) },
+    }),
 
   remoteStop: (id: string, transactionId: number) =>
-    apiClient.put(`/cpo/charging-stations/${id}/remote/stop`, { transactionId }),
+    apiClient.put(`/cpo/charging-stations/${id}/remote/stop`, {
+      args: { transactionId },
+    }),
 
   unlockConnector: (id: string, connectorId: number) =>
-    apiClient.put(`/cpo/charging-stations/${id}/connectors/${connectorId}/unlock`, {}),
+    apiClient.put(`/cpo/charging-stations/${id}/connectors/${connectorId}/unlock`, undefined),
 
   updateAvailability: (id: string, availability: string) =>
-    apiClient.put(`/cpo/charging-stations/${id}/availability/change`, { availability }),
+    apiClient.put(`/cpo/charging-stations/${id}/availability/change`, { args: { availability } }),
 
   setPowerLimit: (id: string, limit: number) =>
     apiClient.put(`/cpo/charging-stations/${id}/power/limit`, { limit }),
 
   setParameters: (id: string, parameters: Record<string, string>) =>
     apiClient.put(`/cpo/charging-stations/${id}/parameters`, parameters),
+
+  setOcppConfig: (id: string, key: string, value: string, custom = false) =>
+    apiClient.put(`/cpo/charging-stations/${id}/configuration`, {
+      args: { key, value, custom },
+    }),
 };
 
 export const transactionsApi = {
@@ -758,47 +809,53 @@ export const companiesApi = {
 
 export const dsoApi = {
   // DSO Connection endpoints
-  getConnections: () => apiClient.get<DsoConnection[]>('/dso-connections'),
+  getConnections: () => apiClient.get<DsoConnection[]>('/dso/connections'),
 
-  getConnectionById: (id: string) => apiClient.get<DsoConnection>(`/dso-connections/${id}`),
+  getConnectionById: (id: string) => apiClient.get<DsoConnection>(`/dso/connections/${id}`),
 
-  // ✅ FIX: accepter tariffUrl / energyUrl
   createConnection: (data: CreateDsoConnectionInput) =>
-    apiClient.post<DsoConnection>('/dso-connections', data),
+    apiClient.post<DsoConnection>('/dso/connections', data),
 
-  // ✅ FIX: update typé (isActive + urls + token si supporté)
   updateConnection: (id: string, data: UpdateDsoConnectionInput) =>
-    apiClient.put<DsoConnection>(`/dso-connections/${id}`, data),
+    apiClient.put<DsoConnection>(`/dso/connections/${id}`, data),
 
-  deleteConnection: (id: string) => apiClient.delete(`/dso-connections/${id}`),
+  deleteConnection: (id: string) => apiClient.delete(`/dso/connections/${id}`),
+
+  toggleConnection: (id: string, isActive: boolean) =>
+    apiClient.patch<DsoConnection>(`/dso/connections/${id}/toggle`, { isActive }),
 
   // Site Link endpoints
   getSiteLinks: (connectionId?: string) =>
     apiClient.get<SiteLink[]>(
-      `/dso-connections${connectionId ? `/${connectionId}` : ''}/site-links`
+      connectionId ? `/dso/connections/${connectionId}/site-links` : `/dso/site-links`
     ),
 
-  getSiteLinkById: (id: string) => apiClient.get<SiteLink>(`/dso-connections/site-links/${id}`),
+  getSiteLinkById: (id: string) => apiClient.get<SiteLink>(`/dso/site-links/${id}`),
 
   createSiteLink: (data: { siteId: string; dsoConnectionId: string; dsoSiteRef?: string }) =>
-    apiClient.post<SiteLink>('/dso-connections/site-links', data),
+    apiClient.post<SiteLink>(`/dso/connections/${data.dsoConnectionId}/site-links`, data),
 
   updateSiteLink: (id: string, data: Partial<SiteLink>) =>
-    apiClient.put<SiteLink>(`/dso-connections/site-links/${id}`, data),
+    apiClient.patch<SiteLink>(`/dso/site-links/${id}/toggle`, data),
 
-  deleteSiteLink: (id: string) => apiClient.delete(`/dso-connections/site-links/${id}`),
+  deleteSiteLink: (id: string) => apiClient.delete(`/dso/site-links/${id}`),
+
+  toggleOptimization: (id: string, optimizationEnabled: boolean) =>
+    apiClient.patch<SiteLink>(`/dso/site-links/${id}/toggle-optimization`, { optimizationEnabled }),
+
+  syncEnergyForDsoSite: (connectionId: string, dsoSiteRef: string) =>
+    apiClient.post<any>(`/dso/connections/${connectionId}/sync-energy/${dsoSiteRef}`),
 
   // Get available DSO sites from a connection
   getDsoSites: (connectionId: string) =>
-    apiClient.get<any[]>(`/dso-connections/${connectionId}/sites`),
+    apiClient.get<any[]>(`/dso/connections/${connectionId}/sites`),
 
   // Energy sync endpoint
-syncEnergy: (siteLinkId: string) =>
-  apiClient.post<EnergySnapshot>(`/dso-connections/site-links/${siteLinkId}/sync-energy`),
+  syncEnergy: (siteLinkId: string) =>
+    apiClient.post<EnergySnapshot>(`/dso/site-links/${siteLinkId}/sync-energy`),
 
-syncSites: (connectionId: string) =>
-  apiClient.post(`/dso-connections/${connectionId}/sync-sites`)
-
+  syncSites: (connectionId: string) =>
+    apiClient.post(`/dso/connections/${connectionId}/sync-sites`),
 }; 
 export const dsoOptimizationApi = {
   createLog: (payload: {
@@ -811,5 +868,5 @@ export const dsoOptimizationApi = {
     level: 'full' | 'reduced' | 'stop';
     appliedToCpo: boolean;
     triggeredBy: 'auto' | 'manual';
-  }) => apiClient.post('/dso-optimization/logs', payload),
+  }) => apiClient.post('/dso/optimization-logs', payload),
 };

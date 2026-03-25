@@ -37,7 +37,7 @@ export default function DsoConnectionsPage() {
   });
 
   const [showPassword, setShowPassword] = useState(false);
-  const [testResult, setTestResult] = useState<{ isValid: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ isValid: boolean; message: string; dsoLabel?: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
   // Get all DSO connections
@@ -89,7 +89,7 @@ export default function DsoConnectionsPage() {
       }
 
       const msg = data?.message || 'Connexion valide';
-      setTestResult({ isValid: true, message: msg });
+      setTestResult({ isValid: true, message: msg, dsoLabel: data?.dsoLabel });
       toast.success('Connexion testée avec succès');
       return true;
     } catch {
@@ -108,7 +108,7 @@ export default function DsoConnectionsPage() {
         baseUrl: data.baseUrl,
         authEmail: data.authEmail,
         authPassword: data.authPassword,
-        // ⚠️ IMPORTANT: ton dsoApi.createConnection doit accepter ces champs (patch lib/api.ts)
+        label: testResult?.dsoLabel || '',
         tariffUrl: data.tariffUrl || null,
         energyUrl: data.energyUrl || null,
       } as any),
@@ -147,6 +147,17 @@ export default function DsoConnectionsPage() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || 'Erreur lors de la mise à jour');
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      dsoApi.toggleConnection(id, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dso-connections'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Erreur lors du changement de statut');
     },
   });
 
@@ -396,12 +407,12 @@ export default function DsoConnectionsPage() {
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                     onClick={() => {
-                      updateMutation.mutate({
+                      toggleMutation.mutate({
                         id: connection.id,
-                        data: { isActive: !(connection as any).isActive },
+                        isActive: !(connection as any).isActive,
                       });
                     }}
-                    disabled={updateMutation.isPending}
+                    disabled={toggleMutation.isPending}
                   >
                     {(connection as any).isActive ? 'Actif' : 'Pause'}
                   </button>

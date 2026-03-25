@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Plug, Zap } from 'lucide-react';
 import { Header } from '@/components/layout';
 
@@ -9,7 +10,13 @@ import CpoPageContent from './cpo-content';
 import DsoPageContent from './dso-content';
 
 export default function ConnectionsPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<'cpo' | 'dso'>('cpo');
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'dso') setActiveTab('dso');
+  }, [searchParams]);
 
   return (
     <div className="min-h-screen bg-background">

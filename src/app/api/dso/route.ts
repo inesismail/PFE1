@@ -28,49 +28,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No JWT — Authorization header missing" }, { status: 401 });
     }
 
-    // ─── Récupération connexion DSO depuis NestJS ─────────────────────────────
-    const connUrl = `${BACKEND_URL}/api/dso-connections/${connectionId}`;
+    // ─── Appel direct au DSO service (gère mock + réel en interne) ────────────
+    const targetUrl = `${BACKEND_URL}/api/dso/connections/${encodeURIComponent(connectionId)}/${encodeURIComponent(endpoint)}?site_id=${encodeURIComponent(siteId)}`;
 
-    const connRes = await fetch(connUrl, {
+    const dsoRes = await fetch(targetUrl, {
       headers: {
         "content-type": "application/json",
         Authorization: `Bearer ${jwt}`,
       },
-      cache: "no-store",
-    });
-
-    const connText = await connRes.text().catch(() => "");
-
-    if (!connRes.ok) {
-      return NextResponse.json(
-        { error: `Backend ${connRes.status}`, body: connText },
-        { status: 500 }
-      );
-    }
-
-    const data = JSON.parse(connText);
-    const conn = (data?.data ?? data) as any;
-
-    const baseUrl = conn.baseUrl ?? conn.base_url ?? conn.url;
-    const apiToken =
-      conn.apiToken ??
-      conn.api_token ??
-      conn.token ??
-      conn.authPassword ??
-      conn.authEmail;
-
-    if (!baseUrl || !apiToken) {
-      return NextResponse.json(
-        { error: "Connection missing baseUrl or apiToken", connKeys: Object.keys(conn) },
-        { status: 500 }
-      );
-    }
-
-    // ─── Appel mock DSO Flask ─────────────────────────────────────────────────
-    const targetUrl = `${baseUrl}/${endpoint}?site_id=${encodeURIComponent(siteId)}`;
-
-    const dsoRes = await fetch(targetUrl, {
-      headers: { "X-API-TOKEN": apiToken },
       cache: "no-store",
     });
 

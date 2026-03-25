@@ -19,7 +19,11 @@ export function Providers({ children }: ProvidersProps) {
             staleTime: 30 * 1000, // 30 seconds
             refetchInterval: 60 * 1000, // 1 minute auto-refresh
             refetchOnWindowFocus: true,
-            retry: 2,
+            retry: (failureCount, error: any) => {
+              const status = error?.response?.status;
+              if (status === 502 || status === 503) return false;
+              return failureCount < 2;
+            },
           },
         },
       })

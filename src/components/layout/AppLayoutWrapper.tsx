@@ -27,10 +27,10 @@ export function AppLayoutWrapper({ children }: AppLayoutWrapperProps) {
   // Show loading state while auth is initializing
   if (isLoading && !isPublicRoute) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
-          <p className="text-slate-400">Loading...</p>
+          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     );

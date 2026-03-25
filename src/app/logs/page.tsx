@@ -33,6 +33,9 @@ const LOG_SOURCES: { source: LogSource; label: string }[] = [
   { source: 'SignalProcessor', label: 'Signal Processor' },
   { source: 'EdfSignal', label: 'EDF Signal' },
   { source: 'SiteLimit', label: 'Site Limit' },
+  { source: 'DsoService', label: 'DSO Service' },
+  { source: 'ActorsService', label: 'Acteurs' },
+  { source: 'AuthService', label: 'Authentification' },
   { source: 'System', label: 'Système' },
   { source: 'Plugin', label: 'Plugin' },
 ];

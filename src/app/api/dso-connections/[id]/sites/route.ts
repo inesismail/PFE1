@@ -24,7 +24,7 @@ export async function GET(
       headers['Cookie'] = cookie;
     }
 
-    const response = await fetch(`${API_BASE_URL}/dso-connections/${id}/sites`, {
+    const response = await fetch(`${API_BASE_URL}/dso/connections/${id}/sites`, {
       method: 'GET',
       headers,
       cache: 'no-store',

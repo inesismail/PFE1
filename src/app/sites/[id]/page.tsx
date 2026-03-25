@@ -512,36 +512,87 @@ export default function SiteDetailPage() {
                   </Link>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {siteLinks.map((link) => {
                     const dsoConn = dsoConnections.find((c) => c.id === link.dsoConnectionId);
                     return (
-                      <div key={link.id} className="bg-indigo-50 rounded-lg p-3 border border-indigo-200">
-                        <div className="font-medium text-sm text-indigo-900">
-                          {dsoConn?.baseUrl || 'DSO Inconnu'}
-                        </div>
-                        <div className="text-xs text-indigo-700 mt-1">Site DSO: {link.dsoSiteRef}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {link.enabled ? '✓ Actif' : '✗ Inactif'}
-                        </div>
-                        {hourlyLoading ? (
-                          <div className="flex gap-3 mt-2 pt-2 border-t border-indigo-200">
-                            <span className="text-xs text-indigo-400">⚡ Chargement...</span>
+                      <div key={link.id} className="rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/80 to-purple-50/80 overflow-hidden">
+                        {/* Liaison header */}
+                        <div className="p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-indigo-500 tracking-wider">Détails de Liaison</span>
+                            <Badge
+                              variant={link.enabled ? 'success' : 'warning'}
+                              className="text-[10px]"
+                            >
+                              {link.enabled ? '✓ Actif' : '✗ Inactif'}
+                            </Badge>
                           </div>
-                        ) : currentEnergyEntry || currentTariffEntry ? (
-                          <div className="flex gap-3 mt-2 pt-2 border-t border-indigo-200">
-                            {currentEnergyEntry && (
-                              <span className="text-xs text-indigo-800">
-                                ⚡ {currentEnergyEntry.value.toFixed(1)} kW
-                              </span>
-                            )}
-                            {currentTariffEntry && (
-                              <span className="text-xs text-indigo-800">
-                                💶 {currentTariffEntry.price.toFixed(4)} €/kWh
-                              </span>
-                            )}
+
+                          {/* CPO ↔ DSO */}
+                          <div className="grid grid-cols-1 gap-1.5">
+                            <div className="rounded-lg bg-white/90 border border-blue-200 p-2">
+                              <p className="text-[10px] uppercase font-semibold text-blue-500">CPO</p>
+                              <p className="text-sm font-bold text-blue-900 truncate">{site.name}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">{site.externalId}</p>
+                            </div>
+                            <div className="flex justify-center">
+                              <div className="text-indigo-400 text-xs font-bold">↕</div>
+                            </div>
+                            <div className="rounded-lg bg-white/90 border border-purple-200 p-2">
+                              <p className="text-[10px] uppercase font-semibold text-purple-500">DSO</p>
+                              <p className="text-sm font-bold text-purple-900 truncate">
+                                {dsoConn?.label || dsoConn?.baseUrl || 'DSO Inconnu'}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground truncate">Ref: {link.dsoSiteRef}</p>
+                            </div>
                           </div>
-                        ) : null}
+                        </div>
+
+                        {/* Energie & Tarif temps réel */}
+                        <div className="border-t border-indigo-200 bg-white/60 p-3">
+                          <p className="text-[10px] uppercase font-semibold text-gray-500 mb-2">Données temps réel</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-green-50 border border-green-200 p-2 text-center">
+                              <Zap className="w-3.5 h-3.5 text-green-600 mx-auto mb-1" />
+                              <p className="text-[10px] text-muted-foreground">Énergie dispo</p>
+                              {hourlyLoading ? (
+                                <p className="text-xs text-green-600 animate-pulse">...</p>
+                              ) : currentEnergyEntry ? (
+                                <p className="text-sm font-bold text-green-700">{currentEnergyEntry.value.toFixed(1)} kW</p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">N/A</p>
+                              )}
+                            </div>
+                            <div className="rounded-lg bg-blue-50 border border-blue-200 p-2 text-center">
+                              <DollarSign className="w-3.5 h-3.5 text-blue-600 mx-auto mb-1" />
+                              <p className="text-[10px] text-muted-foreground">Tarification</p>
+                              {hourlyLoading ? (
+                                <p className="text-xs text-blue-600 animate-pulse">...</p>
+                              ) : currentTariffEntry ? (
+                                <p className="text-sm font-bold text-blue-700">{currentTariffEntry.price.toFixed(4)} €/kWh</p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">N/A</p>
+                              )}
+                            </div>
+                          </div>
+                          {latestSnapshot && (
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              <div className="rounded-lg bg-purple-50 border border-purple-200 p-2 text-center">
+                                <p className="text-[10px] text-muted-foreground">Signal DSO</p>
+                                <p className={`text-sm font-bold ${latestSnapshot.signal === 1 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {latestSnapshot.signal === 1 ? '✓ Favorable' : latestSnapshot.signal === 0 ? '✗ Défavorable' : '?'}
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-orange-50 border border-orange-200 p-2 text-center">
+                                <p className="text-[10px] text-muted-foreground">Congestion</p>
+                                <p className="text-sm font-bold text-orange-700">
+                                  {latestSnapshot.congestionLevel ?? 'N/A'} %
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

@@ -159,7 +159,7 @@ function LoginForm() {
                 href="/forgot-password"
                 className="text-sm text-amber-400 hover:text-amber-300 transition-colors"
               >
-                Forgot password?
+                Mot de passe oublié ?
               </Link>
             </div>
 
@@ -194,10 +194,7 @@ function LoginForm() {
 
         {/* Footer */}
         <p className="text-center text-slate-500 text-sm mt-6">
-          Need an account?{' '}
-          <Link href="/register" className="text-amber-400 hover:text-amber-300 transition-colors">
-            Contact administrator
-          </Link>
+          Besoin d&apos;un compte ? Contactez votre administrateur.
         </p>
       </div>
 
