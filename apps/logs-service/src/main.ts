@@ -7,7 +7,7 @@ async function bootstrap() {
   const logger = new Logger('LogsService');
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({ origin: '*' });
+  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3000', credentials: true });
 
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
@@ -25,7 +25,8 @@ async function bootstrap() {
     .build();
 
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
-
+  const server = app.getHttpAdapter().getInstance();
+  server.get('/health', (_req: import('express').Request, res: import('express').Response) => res.json({ status: 'ok' }));
   const port = process.env.PORT ?? 3007;
   await app.listen(port);
   logger.log(`Logs Service démarré sur http://localhost:${port}/api`);

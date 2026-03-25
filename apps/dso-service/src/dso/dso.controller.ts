@@ -2,49 +2,75 @@ import 'dotenv/config';
 import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { DsoService } from './dso.service';
-import { CreateDsoConnectionDto } from './dto/create-dso-connection.dto';
-import { CreateSiteLinkDto } from './dto/create-site-link.dto';
-import { CreateEnergySnapshotDto } from './dto/create-energy-snapshot.dto';
-import { CreateOptimizationLogDto } from './dto/create-optimization-log.dto';
+import {
+  CreateDsoConnectionDto,
+  UpdateDsoConnectionDto,
+  TestDsoConnectionDto,
+  CreateSiteLinkDto,
+  CreateEnergySnapshotDto,
+  CreateOptimizationLogDto,
+  ToggleConnectionDto,
+  ToggleSiteLinkDto,
+  ToggleOptimizationDto,
+} from './dto';
 
 @ApiTags('DSO')
-@Controller('api/dso')
+@Controller('dso')
 export class DsoController {
   constructor(private readonly dsoService: DsoService) {}
 
   // ── Dashboard ─────────────────────────────────────────────────────
+
   @Get('dashboard')
   @ApiOperation({ summary: 'DSO dashboard — résumé global' })
-  getDashboard() { return this.dsoService.getDashboard(); }
+  getDashboard() {
+    return this.dsoService.getDashboard();
+  }
 
   // ── Connections ───────────────────────────────────────────────────
+
   @Get('connections')
   @ApiOperation({ summary: 'Liste toutes les connexions DSO' })
-  getConnections() { return this.dsoService.getConnections(); }
+  getConnections() {
+    return this.dsoService.getConnections();
+  }
+
+  @Post('connections/test')
+  @ApiOperation({ summary: 'Tester une connexion DSO (mock ou réelle)' })
+  testConnection(@Body() dto: TestDsoConnectionDto) {
+    return this.dsoService.testConnection(dto.baseUrl, dto.token, dto.tariffUrl, dto.energyUrl);
+  }
 
   @Post('connections')
   @ApiOperation({ summary: 'Créer une connexion DSO (valide le token mock ou réel)' })
-  createConnection(@Body() dto: CreateDsoConnectionDto) { return this.dsoService.createConnection(dto); }
+  createConnection(@Body() dto: CreateDsoConnectionDto) {
+    return this.dsoService.createConnection(dto);
+  }
 
   @Get('connections/:id')
   @ApiOperation({ summary: 'Connexion DSO par ID' })
-  getConnection(@Param('id') id: string) { return this.dsoService.getConnectionById(id); }
+  getConnection(@Param('id') id: string) {
+    return this.dsoService.getConnectionById(id);
+  }
 
-@Put('connections/:id')
-@ApiOperation({ summary: 'Mettre à jour connexion DSO' })
-updateConnection(@Param('id') id: string, @Body() dto: Partial<CreateDsoConnectionDto>) {
-  return this.dsoService.updateConnection(id, dto);
-}
+  @Put('connections/:id')
+  @ApiOperation({ summary: 'Mettre à jour connexion DSO' })
+  updateConnection(@Param('id') id: string, @Body() dto: UpdateDsoConnectionDto) {
+    return this.dsoService.updateConnection(id, dto);
+  }
 
   @Patch('connections/:id/toggle')
-@ApiOperation({ summary: 'Activer/désactiver connexion DSO' })
-toggleConnection(@Param('id') id: string, @Body() body?: { isActive?: boolean }) {
-  return this.dsoService.toggleConnection(id, body?.isActive);
-}
+  @ApiOperation({ summary: 'Activer/désactiver connexion DSO' })
+  toggleConnection(@Param('id') id: string, @Body() dto: ToggleConnectionDto) {
+    return this.dsoService.toggleConnection(id, dto?.isActive);
+  }
+
   @Delete('connections/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Supprimer connexion DSO' })
-  deleteConnection(@Param('id') id: string) { return this.dsoService.deleteConnection(id); }
+  deleteConnection(@Param('id') id: string) {
+    return this.dsoService.deleteConnection(id);
+  }
 
   // ── DSO Sites (mock ou réel) ──────────────────────────────────────
   @Get('connections/:id/sites')
@@ -56,7 +82,9 @@ toggleConnection(@Param('id') id: string, @Body() body?: { isActive?: boolean })
 
   @Post('connections/:id/sync-sites')
   @ApiOperation({ summary: 'Sync sites du mock DSO → crée dans sites-service' })
-  syncSites(@Param('id') id: string) { return this.dsoService.syncSites(id); }
+  syncSites(@Param('id') id: string) {
+    return this.dsoService.syncSites(id);
+  }
 
   @Get('connections/:id/energy')
   @ApiOperation({ summary: 'Données énergie depuis mock DSO' })
@@ -73,9 +101,12 @@ toggleConnection(@Param('id') id: string, @Body() body?: { isActive?: boolean })
   }
 
   // ── Site Links ────────────────────────────────────────────────────
+
   @Get('connections/:id/site-links')
   @ApiOperation({ summary: 'Site links d\'une connexion DSO' })
-  getSiteLinks(@Param('id') id: string) { return this.dsoService.getSiteLinks(id); }
+  getSiteLinks(@Param('id') id: string) {
+    return this.dsoService.getSiteLinks(id);
+  }
 
   @Post('connections/:id/site-links')
   @ApiOperation({ summary: 'Lier un site CPO à un site DSO' })
@@ -85,27 +116,48 @@ toggleConnection(@Param('id') id: string, @Body() body?: { isActive?: boolean })
 
   @Get('site-links')
   @ApiOperation({ summary: 'Tous les site links' })
-  getAllSiteLinks() { return this.dsoService.getAllSiteLinks(); }
+  getAllSiteLinks() {
+    return this.dsoService.getAllSiteLinks();
+  }
 
   @Get('site-links/:id')
   @ApiOperation({ summary: 'Site link par ID' })
-  getSiteLink(@Param('id') id: string) { return this.dsoService.getSiteLinkById(id); }
+  getSiteLink(@Param('id') id: string) {
+    return this.dsoService.getSiteLinkById(id);
+  }
 
   @Patch('site-links/:id/toggle')
   @ApiOperation({ summary: 'Activer/désactiver un site link' })
-  toggleSiteLink(@Param('id') id: string, @Body() body: { enabled: boolean }) {
-    return this.dsoService.toggleSiteLink(id, body.enabled);
+  toggleSiteLink(@Param('id') id: string, @Body() dto: ToggleSiteLinkDto) {
+    return this.dsoService.toggleSiteLink(id, dto.enabled);
+  }
+
+  @Patch('site-links/:id/toggle-optimization')
+  @ApiOperation({ summary: 'Activer/désactiver l\'optimisation énergie pour un site link' })
+  toggleOptimization(@Param('id') id: string, @Body() dto: ToggleOptimizationDto) {
+    return this.dsoService.toggleOptimization(id, dto.optimizationEnabled);
   }
 
   @Delete('site-links/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Supprimer un site link' })
-  deleteSiteLink(@Param('id') id: string) { return this.dsoService.deleteSiteLink(id); }
+  deleteSiteLink(@Param('id') id: string) {
+    return this.dsoService.deleteSiteLink(id);
+  }
 
   // ── Sync Energy ───────────────────────────────────────────────────
+
   @Post('site-links/:id/sync-energy')
-  @ApiOperation({ summary: 'Sync énergie depuis mock DSO → EnergySnapshot + optimisation auto' })
-  syncEnergy(@Param('id') id: string) { return this.dsoService.syncEnergyForSiteLink(id); }
+  @ApiOperation({ summary: 'Sync énergie depuis DSO → distribue entre tous les CPO liés au même site DSO' })
+  syncEnergy(@Param('id') id: string) {
+    return this.dsoService.syncEnergyForSiteLink(id);
+  }
+
+  @Post('connections/:id/sync-energy/:dsoSiteRef')
+  @ApiOperation({ summary: 'Sync énergie pour un site DSO — distribue entre tous les CPO liés' })
+  syncEnergyForDsoSite(@Param('id') id: string, @Param('dsoSiteRef') dsoSiteRef: string) {
+    return this.dsoService.syncEnergyForDsoSite(id, dsoSiteRef);
+  }
 
   // ── Snapshots manuels ─────────────────────────────────────────────
   @Post('site-links/:id/snapshots')
@@ -122,25 +174,30 @@ toggleConnection(@Param('id') id: string, @Body() body?: { isActive?: boolean })
   }
 
   // ── Optimization Logs ─────────────────────────────────────────────
-@Post('optimization-logs')
-@ApiOperation({ summary: 'Créer un log d\'optimisation' })
-createLog(@Body() dto: CreateOptimizationLogDto) { 
-  return this.dsoService.createOptimizationLog(dto); 
-}
+
+  @Post('optimization-logs')
+  @ApiOperation({ summary: 'Créer un log d\'optimisation' })
+  createLog(@Body() dto: CreateOptimizationLogDto) {
+    return this.dsoService.createOptimizationLog(dto);
+  }
 
   @Get('optimization-logs')
   @ApiOperation({ summary: 'Logs d\'optimisation avec filtres' })
   @ApiQuery({ name: 'dsoSiteRef', required: false })
-  @ApiQuery({ name: 'level', required: false, enum: ['full', 'reduced', 'stop'] })
+  @ApiQuery({ name: 'level', required: false, enum: ['full', 'reduced', 'blocked'] })
   @ApiQuery({ name: 'triggeredBy', required: false, enum: ['auto', 'manual'] })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'offset', required: false })
   getLogs(
-    @Query('dsoSiteRef') dsoSiteRef?: string, @Query('level') level?: string,
-    @Query('triggeredBy') triggeredBy?: string, @Query('from') from?: string,
-    @Query('to') to?: string, @Query('limit') limit?: string, @Query('offset') offset?: string,
+    @Query('dsoSiteRef') dsoSiteRef?: string,
+    @Query('level') level?: string,
+    @Query('triggeredBy') triggeredBy?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
     return this.dsoService.getOptimizationLogs({
       dsoSiteRef, level, triggeredBy,

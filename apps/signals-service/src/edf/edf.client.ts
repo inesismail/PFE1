@@ -6,28 +6,28 @@ export interface EdfSignalRecord {
   signal: number;
 }
 
-// Un seul portail — tous les territoires sont sur opendata-corse.edf.fr
-// Les vrais dataset IDs confirmés depuis la page opendata
+// Chaque territoire a son portail et dataset
+// Réunion: API v2.1 retourne 404, on utilise uniquement v1.0
 export const EDF_REGIONS: Record<string, { baseUrl: string; dataset: string }> = {
   CORSE: {
     baseUrl: 'https://opendata-corse.edf.fr',
     dataset: 'signal-reseau-corse-recharge-vehicule-electrique',
   },
   GUADELOUPE: {
-    baseUrl: 'https://opendata-corse.edf.fr',
+    baseUrl: 'https://opendata.edf.fr',
     dataset: 'signal-reseau-guadeloupe-recharge-vehicule-electrique',
   },
   GUYANE: {
-    baseUrl: 'https://opendata-corse.edf.fr',
+    baseUrl: 'https://opendata.edf.fr',
     dataset: 'signal-reseau-guyane-recharge-vehicule-electrique',
   },
   MARTINIQUE: {
-    baseUrl: 'https://opendata-corse.edf.fr',
+    baseUrl: 'https://opendata.edf.fr',
     dataset: 'signal-reseau-martinique-recharge-vehicule-electrique',
   },
   REUNION: {
-    baseUrl: 'https://opendata-corse.edf.fr',
-    dataset: 'signal-reseau-la-reunion-recharge-vehicule-electrique',
+    baseUrl: 'https://opendata.edf.fr',
+    dataset: 'signal-reseau-reunion-recharge-vehicule-electrique',
   },
 };
 

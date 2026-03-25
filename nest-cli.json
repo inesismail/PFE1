@@ -22,7 +22,16 @@
       "entryFile": "main",
       "sourceRoot": "apps/signals-service/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/signals-service/tsconfig.app.json"
+        "tsConfigPath": "apps/signals-service/tsconfig.build.json"
+      }
+    },
+    "sites-service": {
+      "type": "application",
+      "root": "apps/sites-service2",
+      "entryFile": "main",
+      "sourceRoot": "apps/sites-service2/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/sites-service2/tsconfig.build.json"
       }
     }
   }

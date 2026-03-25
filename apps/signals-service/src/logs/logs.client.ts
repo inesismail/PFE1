@@ -6,11 +6,11 @@ export class LogsClient {
   private readonly logger = new Logger(LogsClient.name);
   private readonly baseUrl = process.env.LOGS_BASE_URL || 'http://localhost:3007';
 
-  async log(level: string, service: string, message: string, metadata?: any) {
+  async log(level: string, source: string, action: string, message: string, metadata?: any) {
     try {
       await axios.post(
         `${this.baseUrl}/api/logs`,
-        { level, service, message, metadata },
+        { level, source, action, message, metadata },
         { timeout: 3000 }
       );
     } catch {
@@ -18,7 +18,7 @@ export class LogsClient {
     }
   }
 
-  info(service: string, message: string, metadata?: any) { return this.log('info', service, message, metadata); }
-  error(service: string, message: string, metadata?: any) { return this.log('error', service, message, metadata); }
-  warn(service: string, message: string, metadata?: any) { return this.log('warn', service, message, metadata); }
+  info(source: string, action: string, message: string, metadata?: any) { return this.log('INFO', source, action, message, metadata); }
+  error(source: string, action: string, message: string, metadata?: any) { return this.log('ERROR', source, action, message, metadata); }
+  warn(source: string, action: string, message: string, metadata?: any) { return this.log('WARN', source, action, message, metadata); }
 }

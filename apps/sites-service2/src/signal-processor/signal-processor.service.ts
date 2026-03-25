@@ -173,9 +173,13 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // WattzHub uses MongoDB ObjectIds (24-char hex) as site area IDs
+  private static readonly OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
+
   private async processSiteSignal(site: any, connectionId: string): Promise<{ changed: boolean }> {
     const regionCode = site.edfRegion.code;
     const previousLimit = site.currentLimitKw;
+    const hasValidExternalId = SignalProcessorService.OBJECT_ID_RE.test(site.externalId);
 
     try {
       // Check manual override
@@ -194,14 +198,18 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
           return { changed: false };
         }
 
-        await this.cpoService.setSiteLimit(connectionId, site.externalId, manualLimit);
+        if (hasValidExternalId) {
+          await this.cpoService.setSiteLimit(connectionId, site.externalId, manualLimit);
+        } else {
+          this.logger.debug(`${site.name}: skipping remote limit (non-WattzHub externalId: ${site.externalId})`);
+        }
         await this.prisma.site.update({
           where: { id: site.id },
           data: { currentLimitKw: manualLimit, lastLimitSetAt: new Date(), lastSignalAt: new Date() },
         });
         await this.logs.info('SiteLimit', 'MANUAL_OVERRIDE_APPLIED',
-          `${site.name}: manual limit applied ${manualLimit} kW`,
-          { siteId: site.id, siteName: site.name, metadata: { regionCode, manualLimit } },
+          `${site.name}: manual limit applied ${manualLimit} kW${hasValidExternalId ? '' : ' [local only]'}`,
+          { siteId: site.id, siteName: site.name, metadata: { regionCode, manualLimit, remoteApplied: hasValidExternalId } },
         );
         return { changed: true };
       }
@@ -234,22 +242,39 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
         return { changed: false };
       }
 
-      // Update limit in WattzHub
-      await this.cpoService.setSiteLimit(connectionId, site.externalId, newLimit);
+      // Update limit in WattzHub (only if externalId is a valid ObjectId)
+      let remoteApplied = false;
+      if (hasValidExternalId) {
+        try {
+          await this.cpoService.setSiteLimit(connectionId, site.externalId, newLimit);
+          remoteApplied = true;
+        } catch (remoteErr: any) {
+          this.logger.warn(`Failed to set remote limit for ${site.name}: ${remoteErr.message}`);
+        }
+      } else {
+        this.logger.debug(`${site.name}: skipping remote limit (non-WattzHub externalId: ${site.externalId})`);
+      }
 
-      // Update local site
+      // Always update local site with signal
+      const localLimitUpdate = remoteApplied || !hasValidExternalId;
       await this.prisma.site.update({
         where: { id: site.id },
-        data: { currentLimitKw: newLimit, lastSignalValue: signal, lastSignalAt: new Date(), lastLimitSetAt: new Date() },
+        data: {
+          ...(localLimitUpdate ? { currentLimitKw: newLimit } : {}),
+          lastSignalValue: signal,
+          lastSignalAt: new Date(),
+          ...(localLimitUpdate ? { lastLimitSetAt: new Date() } : {}),
+        },
       });
 
       const signalStatus = signal === 1 ? 'favorable' : 'défavorable';
+      const suffix = !hasValidExternalId ? ' [local only]' : remoteApplied ? '' : ' [remote failed]';
       await this.logs.info('SiteLimit', 'LIMIT_UPDATE',
-        `${site.name}: ${previousLimit ?? 0} → ${newLimit} kW (signal ${signalStatus})`,
-        { siteId: site.id, siteName: site.name, connectionId, metadata: { regionCode, signalValue: signal, previousLimit, newLimit } },
+        `${site.name}: ${previousLimit ?? 0} → ${newLimit} kW (signal ${signalStatus})${suffix}`,
+        { siteId: site.id, siteName: site.name, connectionId, metadata: { regionCode, signalValue: signal, previousLimit, newLimit, remoteApplied } },
       );
 
-      return { changed: true };
+      return { changed: localLimitUpdate };
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       await this.logs.error('SiteLimit', 'UPDATE_FAILED',
@@ -265,15 +290,17 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
     try {
       const url = `${apiEndpoint}/api/explore/v2.1/catalog/datasets/${datasetId}/records`;
       const response = await axios.get(url, {
-        params: { limit: 1, order_by: 'date_heure desc' },
+        params: { limit: 1, order_by: 'date desc' },
         timeout: 10000,
       });
       const records = response.data?.results || response.data?.records || [];
       if (!records.length) return null;
       const record = records[0];
-      const signal = record?.fields?.signal ?? record?.signal ?? record?.fields?.valeur ?? null;
+      const signal = record?.signal ?? record?.fields?.signal ?? record?.fields?.valeur ?? null;
+      this.logger.debug(`EDF signal fetched: ${JSON.stringify({ signal, date: record?.date || record?.jour })}`);
       return signal !== null ? Number(signal) : null;
-    } catch {
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch EDF signal: ${err.message}`);
       return null;
     }
   }
@@ -299,5 +326,23 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
   async triggerProcessing(connectionId: string): Promise<void> {
     await this.processConnectionSignals(connectionId);
   }
+
+  /** Process signal for a single site (called after region assignment) */
+  async processSingleSite(siteId: string): Promise<{ changed: boolean }> {
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      include: { edfRegion: true },
+    });
+    if (!site || !site.edfRegion || !site.cpoConnectionId) return { changed: false };
+
+    // Fetch fresh signal for the region
+    const signal = await this.fetchEdfSignal(site.edfRegion.apiEndpoint, site.edfRegion.datasetId);
+    if (signal !== null) {
+      this.signalCache.set(site.edfRegion.code, { signal, fetchedAt: new Date() });
+    }
+
+    return this.processSiteSignal(site, site.cpoConnectionId);
+  }
+
 }
 

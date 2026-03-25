@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client-js"
-  
+  output   = "../node_modules/.prisma/auth-client"
 }
 
 datasource db {
@@ -13,12 +13,13 @@ model User {
   email        String   @unique
   name         String?
   passwordHash String
-  role         String   @default("USER")
+  role         String   @default("VIEWER")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // ✅ relation inverse obligatoire
-  refreshTokens RefreshToken[]
+  refreshTokens      RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model RefreshToken {
@@ -28,6 +29,18 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
 
   @@index([userId])
 }

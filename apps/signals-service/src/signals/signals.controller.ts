@@ -4,7 +4,7 @@ import { SignalsService } from './signals.service';
 import { QuerySignalsDto } from './dto/query-signals.dto';
 
 @ApiTags('Signals')
-@Controller('api/signals')
+@Controller('signals')
 export class SignalsController {
   constructor(private readonly signalsService: SignalsService) {}
 

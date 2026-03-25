@@ -7,7 +7,7 @@ async function bootstrap() {
   const logger = new Logger('SitesService');
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({ origin: '*' });
+  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3000', credentials: true });
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
@@ -22,6 +22,9 @@ async function bootstrap() {
     .addTag('CPO Connections').addTag('EDF Regions').addTag('Sites').addTag('Signal Processor')
     .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
+
+  const server = app.getHttpAdapter().getInstance();
+  server.get('/health', (_req: import('express').Request, res: import('express').Response) => res.json({ status: 'ok' }));
 
   const port = process.env.PORT ?? 3003;
   await app.listen(port);

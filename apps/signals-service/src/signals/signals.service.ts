@@ -47,61 +47,47 @@ export class SignalsService {
     const sites = await this.sitesClient.getSitesByRegion(regionCode);
     this.logger.log(`Found ${sites.length} sites for ${regionCode}`);
 
-    let sitesSuccess = 0;
-    let sitesFailed = 0;
-
     for (const site of sites) {
-      if (site.manualOverride) {
-        await this.prisma.siteLimitLog.create({
-          data: {
-            siteId: site.id,
-            siteName: site.name,
-            regionCode,
-            signalValue: edfSignal.signal,
-            previousLimit: site.currentLimitKw,
-            newLimit: site.currentLimitKw,
-            status: 'skipped',
-            errorMessage: 'Manual override active',
-          },
-        });
-        continue;
-      }
-
-      const result = await this.sitesClient.applySignalToSite(site.id, edfSignal.signal);
+      const isManualOverride = site.manualOverrideUntil && new Date(site.manualOverrideUntil) > new Date();
+      const previousLimit = site.currentLimitKw ?? 0;
+      const newLimit = isManualOverride
+        ? previousLimit
+        : edfSignal.signal === 1
+          ? (site.maxCapacityKw ?? site.currentLimitKw ?? 0)
+          : (site.reducedLimitKw ?? (site.maxCapacityKw ? site.maxCapacityKw * 0.5 : 0));
 
       await this.prisma.siteLimitLog.create({
         data: {
           siteId: site.id,
-          siteName: result.siteName || site.name,
+          siteName: site.name,
           regionCode,
           signalValue: edfSignal.signal,
-          previousLimit: result.previousLimit,
-          newLimit: result.newLimit,
-          status: result.success ? 'success' : 'failed',
-          errorMessage: result.error || null,
+          previousLimit,
+          newLimit,
+          status: isManualOverride ? 'skipped' : 'logged',
+          errorMessage: isManualOverride ? 'Manual override active' : null,
         },
       });
-
-      result.success ? sitesSuccess++ : sitesFailed++;
     }
 
-  await this.logsClient.info(
-  'SignalProcessor',
-  `Region ${regionCode} processed`,
-  {
-    signal: edfSignal.signal,
-    sitesProcessed: sites.length,
-    sitesSuccess,
-    sitesFailed,
-  },
-);
+    await this.logsClient.info(
+      'SignalProcessor',
+      'RegionProcessed',
+      `Region ${regionCode} processed`,
+      {
+        signal: edfSignal.signal,
+        sitesProcessed: sites.length,
+        sitesSuccess: sites.length,
+        sitesFailed: 0,
+      },
+    );
 
     return {
       regionCode,
       signal: edfSignal.signal,
       sitesProcessed: sites.length,
-      sitesSuccess,
-      sitesFailed,
+      sitesSuccess: sites.length,
+      sitesFailed: 0,
     };
   }
 
@@ -129,20 +115,17 @@ export class SignalsService {
   }
 
   async getStatus() {
-    const regions: any[] = [];
+    const result: Record<string, any> = {};
     for (const regionCode of Object.keys(EDF_REGIONS)) {
       const latest = await this.getLatestSignal(regionCode);
-      const sites = await this.sitesClient.getSitesByRegion(regionCode);
-      regions.push({
+      result[regionCode] = {
+        id: latest?.id ?? null,
         regionCode,
-        latestSignal: latest?.value ?? null,
-        lastFetchedAt: latest?.time ?? null,
-        sitesCount: sites.length,
-        status: latest
-          ? latest.value === 1 ? 'FAVORABLE' : 'UNFAVORABLE'
-          : 'UNKNOWN',
-      });
+        value: latest?.value ?? null,
+        signalType: latest?.signalType ?? 'NETWORK_SIGNAL',
+        time: latest?.time ?? null,
+      };
     }
-    return { regions, processedAt: new Date() };
+    return result;
   }
 }

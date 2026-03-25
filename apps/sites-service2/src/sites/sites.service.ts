@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CpoConnectionsService } from '../cpo-connections/cpo-connections.service';
 import { LogsClient } from '../logs/logs.client';
+import { ActorsClient } from '../actors/actors.client';
+import { SignalProcessorService } from '../signal-processor/signal-processor.service';
 import { UpdateSiteDto, AssignRegionDto, ManualOverrideDto } from './dto/site.dto';
 
 @Injectable()
@@ -10,6 +12,8 @@ export class SitesService {
     private readonly prisma: PrismaService,
     private readonly cpoService: CpoConnectionsService,
     private readonly logs: LogsClient,
+    private readonly actorsClient: ActorsClient,
+    private readonly signalProcessor: SignalProcessorService,
   ) {}
 
   async findAll(cpoConnectionId?: string, edfRegionId?: string, isActive?: boolean) {
@@ -17,7 +21,22 @@ export class SitesService {
     if (cpoConnectionId) where.cpoConnectionId = cpoConnectionId;
     if (edfRegionId) where.edfRegionId = edfRegionId;
     if (isActive !== undefined) where.isActive = isActive;
-    return this.prisma.client.site.findMany({ where, include: { edfRegion: true }, orderBy: { name: 'asc' } });
+    const sites = await this.prisma.client.site.findMany({ where, include: { edfRegion: true, cpoConnection: true }, orderBy: { name: 'asc' } });
+
+    // Enrich with actor info and sanitize sensitive fields
+    const actorIds = Array.from(new Set<string>(sites.map((s: any) => s.cpoConnection?.actorId).filter(Boolean)));
+    const actorsMap = await this.actorsClient.getByIds(actorIds);
+
+    return sites.map((site) => {
+      const { encryptedPassword, accessToken, refreshToken, ...safeConn } = site.cpoConnection as any;
+      return {
+        ...site,
+        cpoConnection: {
+          ...safeConn,
+          actor: actorsMap.get(safeConn.actorId) || null,
+        },
+      };
+    });
   }
 
   async findById(id: string) {
@@ -33,16 +52,30 @@ export class SitesService {
 
   async assignRegion(siteId: string, dto: AssignRegionDto) {
     await this.findById(siteId);
-    return this.prisma.client.site.update({
+    await this.prisma.client.site.update({
       where: { id: siteId },
       data: { edfRegionId: dto.edfRegionId, reducedLimitKw: dto.reducedLimitKw },
-      include: { edfRegion: true },
     });
+
+    // Fetch + apply signal — never fails the whole request
+    if (dto.edfRegionId) {
+      try {
+        await this.signalProcessor.processSingleSite(siteId);
+      } catch {
+        // Signal processing failed but region is saved
+      }
+    }
+
+    return this.prisma.client.site.findUnique({ where: { id: siteId }, include: { edfRegion: true } });
   }
 
   async unassignRegion(siteId: string) {
     await this.findById(siteId);
-    return this.prisma.client.site.update({ where: { id: siteId }, data: { edfRegionId: null } });
+    return this.prisma.client.site.update({
+      where: { id: siteId },
+      data: { edfRegionId: null, lastSignalValue: null, lastSignalAt: null },
+      include: { edfRegion: true },
+    });
   }
 
   async setSiteLimit(siteId: string, limitKw: number) {

@@ -8,7 +8,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private pool: Pool;
 
 constructor() {
-    const { PrismaClient } = require('@prisma/client');
+    const { PrismaClient } = require('.prisma/actors-client');
     const { PrismaPg } = require('@prisma/adapter-pg');
     const dbUrl = process.env.DATABASE_URL || '';
     console.log('🔍 DATABASE_URL:', dbUrl); // ← ajoute cette ligne

@@ -12,6 +12,9 @@ export interface CpoSiteDto {
   id: string;
   name: string;
   address?: string;
+  region?: string;
+  department?: string;
+  city?: string;
   maxCapacityKw?: number;
   currentPowerKw?: number;
   siteId?: string;
@@ -78,7 +81,7 @@ export class WattzHubApiClient {
       return { ...data, accessToken: token };
     } catch (error) {
       const axiosErr = error as AxiosError;
-      if (axiosErr.response?.status === 401) throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
+      if (axiosErr.response?.status === 401) throw new HttpException('Invalid CPO credentials', HttpStatus.BAD_GATEWAY);
       const errorData = axiosErr.response?.data as any;
       const message = errorData?.errorMessage || errorData?.message || axiosErr.message;
       throw new HttpException(`Authentication failed: ${message}`, HttpStatus.BAD_GATEWAY);
@@ -124,30 +127,42 @@ export class WattzHubApiClient {
     return this.getSiteAreas();
   }
 
-  async setSiteAreaLimit(siteAreaId: string, limitKw: number): Promise<void> {
+  async setSiteAreaLimit(siteAreaId: string, limitKw: number): Promise<{ originalMaxKw: number }> {
     try {
       const maximumPowerWatts = Math.round(limitKw * 1000);
       const getResponse = await this.client.get(`/api/site-areas/${siteAreaId}`);
-      const currentSiteArea = { ...getResponse.data };
-      delete currentSiteArea.id;
-      delete currentSiteArea.createdOn;
-      delete currentSiteArea.createdBy;
-      delete currentSiteArea.lastChangedBy;
-      delete currentSiteArea.chargingStations;
-      delete currentSiteArea.site;
-      delete currentSiteArea.parentSiteArea;
-      delete currentSiteArea.connectorStats;
-      await this.client.put(`/api/site-areas/${siteAreaId}`, {
-        ...currentSiteArea,
+      const current = getResponse.data;
+      const originalMaxKw = current.maximumPower ? current.maximumPower / 1000 : 0;
+
+      // Only send known mutable fields — spreading the full GET response
+      // includes read-only/computed fields that cause 400 errors.
+      const payload: Record<string, any> = {
+        name: current.name,
+        siteID: current.siteID,
         maximumPower: maximumPowerWatts,
-      });
+        voltage: current.voltage,
+        numberOfPhases: current.numberOfPhases,
+        smartCharging: current.smartCharging,
+        accessControl: current.accessControl,
+      };
+
+      // Preserve optional fields only if they exist
+      if (current.address) payload.address = current.address;
+      if (current.image) payload.image = current.image;
+
+      this.logger.debug(`setSiteAreaLimit ${siteAreaId}: ${limitKw} kW (${maximumPowerWatts} W), original: ${originalMaxKw} kW`);
+      await this.client.put(`/api/site-areas/${siteAreaId}`, payload);
+      return { originalMaxKw };
     } catch (error) {
       const axiosErr = error as AxiosError;
+      this.logger.error(
+        `setSiteAreaLimit failed — status: ${axiosErr.response?.status}, body: ${JSON.stringify(axiosErr.response?.data)}`,
+      );
       throw new HttpException(`Failed to set site area limit: ${axiosErr.message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 
-  async setSiteLimit(siteId: string, limitKw: number): Promise<void> {
+  async setSiteLimit(siteId: string, limitKw: number): Promise<{ originalMaxKw: number }> {
     return this.setSiteAreaLimit(siteId, limitKw);
   }
 
@@ -158,19 +173,58 @@ export class WattzHubApiClient {
     } catch { return false; }
   }
 
+  async getChargingStations(params?: { skip?: number; limit?: number; SiteAreaID?: string }): Promise<any> {
+    const response = await this.client.get('/api/charging-stations', {
+      params: { Limit: params?.limit ?? 100, Skip: params?.skip ?? 0, ...(params?.SiteAreaID ? { SiteAreaID: params.SiteAreaID } : {}) },
+    });
+    return response.data;
+  }
+
+  async getChargingStation(id: string): Promise<any> {
+    const response = await this.client.get(`/api/charging-stations/${id}`);
+    return response.data;
+  }
+
+  async getChargingStationTransactions(stationId: string): Promise<any> {
+    const response = await this.client.get(`/api/charging-stations/${stationId}/transactions`);
+    return response.data;
+  }
+
+  async getSiteAreaConsumptions(siteAreaId: string): Promise<any> {
+    const response = await this.client.get(`/api/site-areas/${siteAreaId}/consumptions`);
+    return response.data;
+  }
+
+  async getTransactionConsumptions(transactionId: string): Promise<any> {
+    const response = await this.client.get(`/api/transactions/${transactionId}/consumptions`);
+    return response.data;
+  }
+
+  async getConsumptionStats(params?: Record<string, any>): Promise<any> {
+    const response = await this.client.get('/api/statistics/charging-stations/consumption', { params });
+    return response.data;
+  }
+
   private mapSiteAreas(siteAreas: any[]): CpoSiteDto[] {
-    return siteAreas.map((area) => ({
-      id: area.id || area._id,
-      name: area.name || 'Unknown',
-      address: this.formatAddress(area.address),
-      maxCapacityKw: area.maximumPower ? area.maximumPower / 1000 : undefined,
-      currentPowerKw: undefined,
-      siteId: area.siteID,
-      siteName: area.site?.name,
-      smartCharging: area.smartCharging,
-      voltage: area.voltage,
-      numberOfPhases: area.numberOfPhases,
-    }));
+    return siteAreas.map((area) => {
+      const siteAddress = area.site?.address;
+      const areaAddress = area.address;
+      return {
+        id: area.id || area._id,
+        name: area.name || 'Unknown',
+        address: this.formatAddress(areaAddress || siteAddress),
+        region: siteAddress?.region || areaAddress?.region,
+        department: siteAddress?.department || areaAddress?.department,
+        city: siteAddress?.city || areaAddress?.city,
+        maxCapacityKw: area.maximumPower ? area.maximumPower / 1000 : undefined,
+        currentPowerKw: undefined,
+        siteId: area.siteID,
+        siteName: area.site?.name,
+        smartCharging: area.smartCharging,
+        voltage: area.voltage,
+        numberOfPhases: area.numberOfPhases,
+      };
+    });
   }
 
   private formatAddress(address: any): string | undefined {

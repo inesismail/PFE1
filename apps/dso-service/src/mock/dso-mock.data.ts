@@ -24,3 +24,17 @@ export const STREETS = [
   "rue du Rhin","quai du Port","avenue Alsace-Lorraine","rue Jean Jaures",
 ];
 export const CAPS = [75, 90, 100, 120, 150, 180, 200, 250, 300, 400];
+
+// Mapping token → région du distributeur
+export const TOKEN_REGIONS: Record<string, { code: string; name: string; provider: string }> = {
+  'token-enedis':     { code: 'FRANCE_METRO', name: 'France Metropolitaine', provider: 'Enedis' },
+  'token-geg':        { code: 'GRENOBLE',     name: 'Grenoble',              provider: 'GEG' },
+  'token-strasbourg': { code: 'STRASBOURG',   name: 'Strasbourg',            provider: 'ES Reseaux' },
+  'token-metz':       { code: 'METZ',         name: 'Metz',                  provider: 'UEM' },
+  'token-nantes':     { code: 'NANTES',       name: 'Nantes',                provider: 'Geredis' },
+  'token-bordeaux':   { code: 'BORDEAUX',     name: 'Bordeaux',              provider: 'SeoLis' },
+  'token-lille':      { code: 'LILLE',         name: 'Lille',                 provider: 'SICAE' },
+  'token-paris':      { code: 'IDF',          name: 'Ile-de-France',         provider: 'SIGEIF' },
+  'token-lyon':       { code: 'LYON',         name: 'Lyon',                  provider: 'SRD' },
+  'token-corse':      { code: 'CORSE',        name: 'Corse',                 provider: 'EDF' },
+};

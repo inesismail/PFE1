@@ -45,11 +45,11 @@ export class EdfRegionsService {
 
   async seed() {
     const defaults = [
-      { code: 'CORSE',      name: 'Corse',      apiEndpoint: 'https://opendata-corse.edf.fr',      datasetId: 'signal-reseau-corse-recharge-vehicule-electrique' },
-      { code: 'GUADELOUPE', name: 'Guadeloupe', apiEndpoint: 'https://opendata-guadeloupe.edf.fr', datasetId: 'signal-reseau-guadeloupe-recharge-vehicule-electrique' },
-      { code: 'MARTINIQUE', name: 'Martinique', apiEndpoint: 'https://opendata-martinique.edf.fr', datasetId: 'signal-reseau-martinique-recharge-vehicule-electrique' },
-      { code: 'GUYANE',     name: 'Guyane',     apiEndpoint: 'https://opendata-guyane.edf.fr',     datasetId: 'signal-reseau-guyane-recharge-vehicule-electrique' },
-      { code: 'REUNION',    name: 'La Réunion', apiEndpoint: 'https://opendata-reunion.edf.fr',    datasetId: 'signal-reseau-la-reunion-recharge-vehicule-electrique' },
+      { code: 'CORSE',      name: 'Corse',      provider: 'EDF', apiEndpoint: 'https://opendata-corse.edf.fr',      datasetId: 'signal-reseau-corse-recharge-vehicule-electrique' },
+      { code: 'GUADELOUPE', name: 'Guadeloupe', provider: 'EDF', apiEndpoint: 'https://opendata-guadeloupe.edf.fr', datasetId: 'signal-reseau-guadeloupe-recharge-vehicule-electrique' },
+      { code: 'MARTINIQUE', name: 'Martinique', provider: 'EDF', apiEndpoint: 'https://opendata-martinique.edf.fr', datasetId: 'signal-reseau-martinique-recharge-vehicule-electrique' },
+      { code: 'GUYANE',     name: 'Guyane',     provider: 'EDF', apiEndpoint: 'https://opendata-guyane.edf.fr',     datasetId: 'signal-reseau-guyane-recharge-vehicule-electrique' },
+      { code: 'REUNION',    name: 'La Réunion', provider: 'EDF', apiEndpoint: 'https://opendata-reunion.edf.fr',    datasetId: 'signal-reseau-reunion-recharge-vehicule-electrique' },
     ];
     const created: any[] = [];    for (const r of defaults) {
       const existing = await this.prisma.client.edfRegion.findUnique({ where: { code: r.code } });

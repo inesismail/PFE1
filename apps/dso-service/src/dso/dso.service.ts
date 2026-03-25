@@ -25,6 +25,40 @@ export class DsoService {
   // DSO CONNECTIONS
   // ══════════════════════════════════════════════════════════════════
 
+  async testConnection(baseUrl: string, token: string, tariffUrl?: string, energyUrl?: string) {
+    const isMock = this.mockService.isValidToken(token);
+    if (isMock) {
+      const label = this.mockService.validateToken(token);
+      const sites = this.mockService.generateSites(token, 3);
+      return {
+        isValid: true,
+        message: `Connexion mock valide — DSO: ${label}`,
+        dsoLabel: label,
+        sites,
+      };
+    }
+
+    // Real DSO
+    try {
+      const resp = await axios.get(`${baseUrl.replace(/\/+$/, '')}/sites`, {
+        headers: { 'X-API-TOKEN': token },
+        timeout: 5000,
+      });
+      return {
+        isValid: true,
+        message: 'Connexion DSO valide',
+        sites: resp.data?.sites || [],
+      };
+    } catch (e: any) {
+      const reason = e?.code === 'ECONNREFUSED'
+        ? 'Serveur DSO injoignable'
+        : e?.response?.status === 401
+          ? 'Token invalide'
+          : e?.message || 'Erreur inconnue';
+      return { isValid: false, message: reason };
+    }
+  }
+
   async createConnection(dto: CreateDsoConnectionDto) {
     // Valide le token contre le mock (ou une vraie API DSO)
     const isMock = this.mockService.isValidToken(dto.authPassword);
@@ -319,58 +353,166 @@ async toggleConnection(id: string, isActive?: boolean) {
     return this.prisma.client.siteLink.update({ where: { id: linkId }, data: { enabled } });
   }
 
+  async toggleOptimization(linkId: string, optimizationEnabled: boolean) {
+    return this.prisma.client.siteLink.update({ where: { id: linkId }, data: { optimizationEnabled } });
+  }
+
   async deleteSiteLink(linkId: string) {
     await this.getSiteLinkById(linkId);
     return this.prisma.client.siteLink.delete({ where: { id: linkId } });
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // SYNC ENERGY — logique exacte du monolithe
+  // SYNC ENERGY — par site DSO (distribue l'énergie entre tous les CPO liés)
   // ══════════════════════════════════════════════════════════════════
 
   async syncEnergyForSiteLink(siteLinkId: string) {
     const link = await this.getSiteLinkById(siteLinkId);
     if (!link.enabled) throw new BadRequestException('Site link is disabled');
 
-    const connectionId = link.dsoConnectionId;
-    const dsoSiteRef = link.dsoSiteRef;
+    // Déclenche la sync pour tout le site DSO (tous les links du même dsoSiteRef)
+    return this.syncEnergyForDsoSite(link.dsoConnectionId, link.dsoSiteRef);
+  }
 
-    // Fetch énergie + tarif en parallèle
-    const [energyData, tariffData] = await Promise.all([
-      this.fetchEnergy(connectionId, dsoSiteRef).catch(() => null),
-      this.fetchTariff(connectionId, dsoSiteRef).catch(() => null),
-    ]);
-
+  async syncEnergyForDsoSite(connectionId: string, dsoSiteRef: string) {
+    // 1. Fetch énergie DSO disponible
+    const energyData = await this.fetchEnergy(connectionId, dsoSiteRef).catch(() => null);
     const hour = new Date().getHours();
-
-    // Prend la valeur de l'heure courante
     const energyEntries: { hour: number; value: number }[] = energyData?.energy || [];
     const energyMatch = energyEntries.find(e => e.hour === hour) || energyEntries[energyEntries.length - 1];
-    const energieKw = energyMatch?.value ?? 0;
+    const energieDispoKw = energyMatch?.value ?? 0;
 
+    // 2. Fetch tarif (pour info/snapshot uniquement, pas pour l'optimisation)
+    const tariffData = await this.fetchTariff(connectionId, dsoSiteRef).catch(() => null);
     const tariffEntries: { hour: number; price: number }[] = tariffData?.tariffs || [];
     const tariffMatch = tariffEntries.find(e => e.hour === hour) || tariffEntries[tariffEntries.length - 1];
     const tarif = tariffMatch?.price ?? 0;
 
-    // Logique du monolithe : tarif < 0.12 → signal=0 (Vert), sinon signal=1 (Orange)
-    const signal = tarif < 0.12 ? 0 : 1;
-
-    const snapshot = await this.prisma.client.energySnapshot.create({
-      data: { siteLinkId, energieKw, tarif, signal, congestionLevel: null, timestamp: new Date() },
+    // 3. Récupérer tous les site links actifs pour ce site DSO
+    const allLinks = await this.prisma.client.siteLink.findMany({
+      where: { dsoConnectionId: connectionId, dsoSiteRef, enabled: true },
     });
 
+    if (!allLinks.length) return { dsoSiteRef, energieDispoKw, tarif, results: [] };
+
+    // 4. Récupérer les infos CPO de chaque site lié
+    const linksWithSites = await Promise.all(
+      allLinks.map(async (link) => {
+        const site = await this.sitesClient.getSiteById(link.siteId);
+        return { link, site };
+      }),
+    );
+
+    // 5. Séparer les sites avec optimisation ON et OFF
+    const optimizedLinks = linksWithSites.filter(
+      (ls) => ls.link.optimizationEnabled && ls.site,
+    );
+    const totalDemandKw = optimizedLinks.reduce(
+      (sum, ls) => sum + (ls.site.maxCapacityKw || 0), 0,
+    );
+
+    // 6. Calculer le ratio de distribution
+    const ratio = totalDemandKw > 0
+      ? Math.min(energieDispoKw / totalDemandKw, 1)
+      : 0;
+
+    // 7. Distribuer et appliquer
+    const results = [];
+    for (const { link, site } of linksWithSites) {
+      if (!site) continue;
+
+      const maxCapacityKw = site.maxCapacityKw || 0;
+      let computedLimitKw: number;
+      let level: string;
+      let remark: string;
+
+      if (!link.optimizationEnabled) {
+        // Optimisation OFF → pas de limitation, on log juste
+        computedLimitKw = maxCapacityKw;
+        level = 'full';
+        remark = `Optimisation désactivée — recharge à pleine capacité (${maxCapacityKw} kW)`;
+      } else if (energieDispoKw <= 0) {
+        // Aucune énergie DSO disponible
+        computedLimitKw = 0;
+        level = 'blocked';
+        remark = 'Aucune énergie DSO disponible — recharge impossible';
+      } else if (ratio >= 1) {
+        // Assez d'énergie pour tout le monde
+        computedLimitKw = maxCapacityKw;
+        level = 'full';
+        remark = `Énergie suffisante — recharge complète autorisée à ${maxCapacityKw} kW`;
+      } else {
+        // Pas assez → répartition proportionnelle
+        computedLimitKw = Math.round(maxCapacityKw * ratio * 10) / 10;
+        level = 'reduced';
+        remark = `Énergie DSO limitée (${energieDispoKw} kW pour ${totalDemandKw} kW demandés). `
+          + `Recharge réduite à ${computedLimitKw} kW sur ${maxCapacityKw} kW`;
+      }
+
+      // Sauvegarder le snapshot
+      const signal = level === 'blocked' ? 2 : level === 'reduced' ? 1 : 0;
+      await this.prisma.client.energySnapshot.create({
+        data: {
+          siteLinkId: link.id,
+          energieKw: energieDispoKw,
+          tarif,
+          signal,
+          congestionLevel: ratio < 1 ? Math.round((1 - ratio) * 100) : 0,
+          timestamp: new Date(),
+        },
+      });
+
+      // Appliquer la limite au site CPO (seulement si optimisation ON)
+      let appliedToCpo = false;
+      if (link.optimizationEnabled) {
+        const result = await this.sitesClient.setSiteLimit(link.siteId, computedLimitKw);
+        appliedToCpo = !!result;
+      }
+
+      // Logger dans DsoOptimizationLog
+      await this.prisma.client.dsoOptimizationLog.create({
+        data: {
+          dsoSiteRef,
+          dsoSiteName: site.name,
+          siteLinkId: link.id,
+          energyKw: energieDispoKw,
+          maxCapacityKw,
+          computedLimitKw,
+          level,
+          remark,
+          totalDsoEnergyKw: energieDispoKw,
+          totalDemandKw,
+          appliedToCpo,
+          triggeredBy: 'auto',
+        },
+      });
+
+      results.push({
+        siteLinkId: link.id,
+        siteName: site.name,
+        maxCapacityKw,
+        computedLimitKw,
+        level,
+        remark,
+        appliedToCpo,
+      });
+
+      this.logger.log(
+        `Optimization — ${site.name}: ${computedLimitKw}/${maxCapacityKw} kW [${level}]`,
+      );
+    }
+
+    // Mettre à jour lastSyncAt
     await this.prisma.client.dsoConnection.update({
-      where: { id: link.dsoConnectionId },
+      where: { id: connectionId },
       data: { lastSyncAt: new Date() },
     });
 
-    // Si signal défavorable → déclenche optimisation
-    if (signal === 1) {
-      await this.runOptimization(link, energieKw);
-    }
+    this.logger.log(
+      `Energy sync — DSO ${dsoSiteRef} | dispo: ${energieDispoKw} kW | demande: ${totalDemandKw} kW | ratio: ${Math.round(ratio * 100)}% | sites: ${results.length}`,
+    );
 
-    this.logger.log(`Energy sync — site: ${dsoSiteRef} | energieKw: ${energieKw} | tarif: ${tarif} | signal: ${signal}`);
-    return snapshot;
+    return { dsoSiteRef, energieDispoKw, totalDemandKw, ratio, tarif, results };
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -378,12 +520,10 @@ async toggleConnection(id: string, isActive?: boolean) {
   // ══════════════════════════════════════════════════════════════════
 
   async addSnapshot(siteLinkId: string, dto: CreateEnergySnapshotDto) {
-    const link = await this.getSiteLinkById(siteLinkId);
-    const snapshot = await this.prisma.client.energySnapshot.create({
+    await this.getSiteLinkById(siteLinkId);
+    return this.prisma.client.energySnapshot.create({
       data: { siteLinkId, ...dto, timestamp: new Date() },
     });
-    if (dto.signal === 1) await this.runOptimization(link, dto.energieKw);
-    return snapshot;
   }
 
   async getSnapshots(siteLinkId: string, limit = 100) {
@@ -392,46 +532,6 @@ async toggleConnection(id: string, isActive?: boolean) {
       orderBy: { timestamp: 'desc' },
       take: limit,
     });
-  }
-
-  // ══════════════════════════════════════════════════════════════════
-  // OPTIMISATION
-  // ══════════════════════════════════════════════════════════════════
-
-  private async runOptimization(link: any, energyKw: number) {
-    try {
-      const site = await this.sitesClient.getSiteById(link.siteId);
-      if (!site) return;
-
-      const maxCapacityKw = site.maxCapacityKw || 22;
-      const computedLimitKw = Math.max(energyKw * 0.5, maxCapacityKw * 0.3);
-      const level = computedLimitKw < maxCapacityKw * 0.4 ? 'reduced' : 'full';
-
-      await this.prisma.client.dsoOptimizationLog.create({
-        data: {
-          dsoSiteRef: link.dsoSiteRef,
-          dsoSiteName: site.name,
-          siteLinkId: link.id,
-          energyKw,
-          maxCapacityKw,
-          computedLimitKw,
-          level,
-          appliedToCpo: false,
-          triggeredBy: 'auto',
-        },
-      });
-
-      await this.sitesClient.applySiteLimit(link.siteId, computedLimitKw);
-
-      await this.prisma.client.dsoOptimizationLog.updateMany({
-        where: { siteLinkId: link.id, appliedToCpo: false },
-        data: { appliedToCpo: true },
-      });
-
-      this.logger.log(`Optimization applied — site: ${site.name} | limit: ${computedLimitKw}kW`);
-    } catch (e: any) {
-      this.logger.error(`Optimization failed: ${e.message}`);
-    }
   }
 
   // ══════════════════════════════════════════════════════════════════

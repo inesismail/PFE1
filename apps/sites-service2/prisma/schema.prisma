@@ -13,6 +13,7 @@ model CpoConnection {
   baseUrl              String
   authUrl              String?
   authType             String
+  tenant               String?
   email                String?
   encryptedPassword    String?
   accessToken          String?
@@ -25,6 +26,7 @@ model CpoConnection {
   nextFetchAt          DateTime?
   lastSyncAt           DateTime?
   sites                Site[]
+  chargingStations     ChargingStation[]
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -38,6 +40,7 @@ model EdfRegion {
   id          String   @id @default(uuid())
   code        String   @unique
   name        String
+  provider    String   @default("EDF")
   apiEndpoint String
   datasetId   String
   apiKey      String?
@@ -48,34 +51,66 @@ model EdfRegion {
 
   @@index([code])
   @@index([isActive])
+  @@index([provider])
   @@map("edf_regions")
 }
 
 model Site {
-  id                    String        @id @default(uuid())
+  id                    String            @id @default(uuid())
   cpoConnectionId       String
-  cpoConnection         CpoConnection @relation(fields: [cpoConnectionId], references: [id], onDelete: Cascade)
+  cpoConnection         CpoConnection    @relation(fields: [cpoConnectionId], references: [id], onDelete: Cascade)
   externalId            String
   name                  String
   address               String?
   edfRegionId           String?
-  edfRegion             EdfRegion?    @relation(fields: [edfRegionId], references: [id])
+  edfRegion             EdfRegion?       @relation(fields: [edfRegionId], references: [id])
   maxCapacityKw         Float?
   currentLimitKw        Float?
   reducedLimitKw        Float?
   manualOverrideLimitKw Float?
   manualOverrideUntil   DateTime?
   manualOverrideReason  String?
-  isActive              Boolean       @default(true)
+  isActive              Boolean           @default(true)
   lastSignalValue       Int?
   lastSignalAt          DateTime?
   lastLimitSetAt        DateTime?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  chargingStations      ChargingStation[]
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   @@unique([cpoConnectionId, externalId])
   @@index([cpoConnectionId])
   @@index([edfRegionId])
   @@index([isActive])
   @@map("sites")
+}
+
+model ChargingStation {
+  id                String        @id @default(uuid())
+  cpoConnectionId   String
+  cpoConnection     CpoConnection @relation(fields: [cpoConnectionId], references: [id], onDelete: Cascade)
+  externalId        String
+  siteId            String?
+  site              Site?         @relation(fields: [siteId], references: [id])
+  chargePointId     String?
+  vendor            String?
+  model             String?
+  firmwareVersion   String?
+  ocppVersion       String?
+  status            String?
+  lastStatusAt      DateTime?
+  maxPowerKw        Float?
+  connectorsCount   Int           @default(0)
+  connectorsJson    Json?
+  latitude          Float?
+  longitude         Float?
+  lastSyncAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([cpoConnectionId, externalId])
+  @@index([cpoConnectionId])
+  @@index([siteId])
+  @@index([status])
+  @@map("charging_stations")
 }

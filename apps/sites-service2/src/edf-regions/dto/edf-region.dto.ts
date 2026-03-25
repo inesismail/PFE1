@@ -3,6 +3,7 @@ import { IsString, IsOptional, IsBoolean } from 'class-validator';
 export class CreateEdfRegionDto {
   @IsString() code: string;
   @IsString() name: string;
+  @IsString() @IsOptional() provider?: string;
   @IsString() apiEndpoint: string;
   @IsString() datasetId: string;
   @IsString() @IsOptional() apiKey?: string;
@@ -10,6 +11,7 @@ export class CreateEdfRegionDto {
 
 export class UpdateEdfRegionDto {
   @IsString() @IsOptional() name?: string;
+  @IsString() @IsOptional() provider?: string;
   @IsString() @IsOptional() apiEndpoint?: string;
   @IsString() @IsOptional() datasetId?: string;
   @IsString() @IsOptional() apiKey?: string;

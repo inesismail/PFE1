@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { SignalsService } from './signals.service';
 
 @ApiTags('Site Limit Logs')
-@Controller('api/site-limit-logs')
+@Controller('site-limit-logs')
 export class SiteLimitLogsController {
   constructor(private readonly signalsService: SignalsService) {}
 

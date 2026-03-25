@@ -68,4 +68,8 @@ export class UpdateCpoConnectionDto {
   @IsBoolean()
   @IsOptional()
   fetchEnabled?: boolean;
+
+  @IsString()
+  @IsOptional()
+  tenant?: string;
 }

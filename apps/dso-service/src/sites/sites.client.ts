@@ -38,4 +38,16 @@ export class SitesClient {
       return null;
     }
   }
+
+  async setSiteLimit(siteId: string, limitKw: number): Promise<any> {
+    try {
+      const res = await axios.post(`${this.baseUrl}/api/sites/${siteId}/set-limit`, {
+        limitKw,
+      });
+      return res.data;
+    } catch (e: any) {
+      this.logger.error(`setSiteLimit failed: ${e.message}`);
+      return null;
+    }
+  }
 }
