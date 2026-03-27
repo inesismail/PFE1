@@ -102,7 +102,7 @@ export class CpoConnectionsService {
   async findById(id: string) {
     const connection = await this.prisma.client.cpoConnection.findUnique({
       where: { id },
-      include: { sites: { include: { edfRegion: true } } },
+      include: { sites: { include: { region: true } } },
     });
     if (!connection) throw new NotFoundException(`CPO connection not found: ${id}`);
     const actor = await this.actorsClient.getById(connection.actorId);
@@ -144,28 +144,119 @@ export class CpoConnectionsService {
     this.apiClients.delete(id);
   }
 
+  // City / postal-code → region mapping for auto-detection fallback
+  private static readonly CITY_TO_REGION: Record<string, string> = {
+    'paris': 'Île-de-France', 'gif sur yvette': 'Île-de-France', 'gif-sur-yvette': 'Île-de-France',
+    'versailles': 'Île-de-France', 'boulogne-billancourt': 'Île-de-France', 'saint-denis': 'Île-de-France',
+    'creteil': 'Île-de-France', 'evry': 'Île-de-France', 'nanterre': 'Île-de-France',
+    'lyon': 'Auvergne-Rhône-Alpes', 'grenoble': 'Auvergne-Rhône-Alpes', 'saint-etienne': 'Auvergne-Rhône-Alpes',
+    'clermont-ferrand': 'Auvergne-Rhône-Alpes', 'annecy': 'Auvergne-Rhône-Alpes', 'valence': 'Auvergne-Rhône-Alpes',
+    'marseille': "Provence-Alpes-Côte d'Azur", 'nice': "Provence-Alpes-Côte d'Azur",
+    'toulon': "Provence-Alpes-Côte d'Azur", 'aix-en-provence': "Provence-Alpes-Côte d'Azur",
+    'avignon': "Provence-Alpes-Côte d'Azur", 'cannes': "Provence-Alpes-Côte d'Azur",
+    'toulouse': 'Occitanie', 'montpellier': 'Occitanie', 'nimes': 'Occitanie', 'perpignan': 'Occitanie',
+    'bordeaux': 'Nouvelle-Aquitaine', 'limoges': 'Nouvelle-Aquitaine', 'poitiers': 'Nouvelle-Aquitaine',
+    'la rochelle': 'Nouvelle-Aquitaine', 'pau': 'Nouvelle-Aquitaine', 'bayonne': 'Nouvelle-Aquitaine',
+    'nantes': 'Pays de la Loire', 'angers': 'Pays de la Loire', 'le mans': 'Pays de la Loire',
+    'rennes': 'Bretagne', 'brest': 'Bretagne', 'lorient': 'Bretagne', 'saint-brieuc': 'Bretagne',
+    'strasbourg': 'Grand Est', 'metz': 'Grand Est', 'nancy': 'Grand Est', 'reims': 'Grand Est', 'mulhouse': 'Grand Est',
+    'lille': 'Hauts-de-France', 'amiens': 'Hauts-de-France', 'roubaix': 'Hauts-de-France', 'dunkerque': 'Hauts-de-France',
+    'rouen': 'Normandie', 'le havre': 'Normandie', 'caen': 'Normandie',
+    'dijon': 'Bourgogne-Franche-Comté', 'besancon': 'Bourgogne-Franche-Comté',
+    'orleans': 'Centre-Val de Loire', 'tours': 'Centre-Val de Loire', 'bourges': 'Centre-Val de Loire',
+    'ajaccio': 'Corse', 'bastia': 'Corse',
+  };
+
+  // Postal code prefix → region (first 2 digits of French postal code)
+  private static readonly POSTAL_TO_REGION: Record<string, string> = {
+    '75': 'Île-de-France', '77': 'Île-de-France', '78': 'Île-de-France',
+    '91': 'Île-de-France', '92': 'Île-de-France', '93': 'Île-de-France',
+    '94': 'Île-de-France', '95': 'Île-de-France',
+    '01': 'Auvergne-Rhône-Alpes', '03': 'Auvergne-Rhône-Alpes', '07': 'Auvergne-Rhône-Alpes',
+    '15': 'Auvergne-Rhône-Alpes', '26': 'Auvergne-Rhône-Alpes', '38': 'Auvergne-Rhône-Alpes',
+    '42': 'Auvergne-Rhône-Alpes', '43': 'Auvergne-Rhône-Alpes', '63': 'Auvergne-Rhône-Alpes',
+    '69': 'Auvergne-Rhône-Alpes', '73': 'Auvergne-Rhône-Alpes', '74': 'Auvergne-Rhône-Alpes',
+    '04': "Provence-Alpes-Côte d'Azur", '05': "Provence-Alpes-Côte d'Azur",
+    '06': "Provence-Alpes-Côte d'Azur", '13': "Provence-Alpes-Côte d'Azur",
+    '83': "Provence-Alpes-Côte d'Azur", '84': "Provence-Alpes-Côte d'Azur",
+    '09': 'Occitanie', '11': 'Occitanie', '12': 'Occitanie', '30': 'Occitanie',
+    '31': 'Occitanie', '32': 'Occitanie', '34': 'Occitanie', '46': 'Occitanie',
+    '48': 'Occitanie', '65': 'Occitanie', '66': 'Occitanie', '81': 'Occitanie', '82': 'Occitanie',
+    '16': 'Nouvelle-Aquitaine', '17': 'Nouvelle-Aquitaine', '19': 'Nouvelle-Aquitaine',
+    '23': 'Nouvelle-Aquitaine', '24': 'Nouvelle-Aquitaine', '33': 'Nouvelle-Aquitaine',
+    '40': 'Nouvelle-Aquitaine', '47': 'Nouvelle-Aquitaine', '64': 'Nouvelle-Aquitaine',
+    '79': 'Nouvelle-Aquitaine', '86': 'Nouvelle-Aquitaine', '87': 'Nouvelle-Aquitaine',
+    '44': 'Pays de la Loire', '49': 'Pays de la Loire', '53': 'Pays de la Loire',
+    '72': 'Pays de la Loire', '85': 'Pays de la Loire',
+    '22': 'Bretagne', '29': 'Bretagne', '35': 'Bretagne', '56': 'Bretagne',
+    '08': 'Grand Est', '10': 'Grand Est', '51': 'Grand Est', '52': 'Grand Est',
+    '54': 'Grand Est', '55': 'Grand Est', '57': 'Grand Est', '67': 'Grand Est', '68': 'Grand Est', '88': 'Grand Est',
+    '02': 'Hauts-de-France', '59': 'Hauts-de-France', '60': 'Hauts-de-France', '62': 'Hauts-de-France', '80': 'Hauts-de-France',
+    '14': 'Normandie', '27': 'Normandie', '50': 'Normandie', '61': 'Normandie', '76': 'Normandie',
+    '21': 'Bourgogne-Franche-Comté', '25': 'Bourgogne-Franche-Comté', '39': 'Bourgogne-Franche-Comté',
+    '58': 'Bourgogne-Franche-Comté', '70': 'Bourgogne-Franche-Comté', '71': 'Bourgogne-Franche-Comté', '89': 'Bourgogne-Franche-Comté', '90': 'Bourgogne-Franche-Comté',
+    '18': 'Centre-Val de Loire', '28': 'Centre-Val de Loire', '36': 'Centre-Val de Loire',
+    '37': 'Centre-Val de Loire', '41': 'Centre-Val de Loire', '45': 'Centre-Val de Loire',
+    '20': 'Corse',
+  };
+
+  private detectRegionFromAddress(address?: string, city?: string): string | null {
+    // 1. Try city name match
+    if (city) {
+      const cityLower = city.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const match = CpoConnectionsService.CITY_TO_REGION[cityLower];
+      if (match) return match;
+    }
+
+    if (!address) return null;
+    const addrLower = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // 2. Try to find a known city name in address
+    for (const [knownCity, region] of Object.entries(CpoConnectionsService.CITY_TO_REGION)) {
+      if (addrLower.includes(knownCity)) return region;
+    }
+
+    // 3. Try postal code (5-digit French code)
+    const postalMatch = address.match(/\b(\d{5})\b/);
+    if (postalMatch) {
+      const prefix = postalMatch[1].substring(0, 2);
+      const region = CpoConnectionsService.POSTAL_TO_REGION[prefix];
+      if (region) return region;
+    }
+
+    return null;
+  }
+
   async syncSites(connectionId: string) {
     const connection = await this.prisma.client.cpoConnection.findUnique({ where: { id: connectionId } });
     if (!connection) throw new NotFoundException(`CPO connection not found: ${connectionId}`);
     const apiClient = await this.getApiClient(connectionId);
     const remoteSites = await apiClient.getSiteAreas();
 
-    // Load all EDF regions for auto-matching
-    const edfRegions = await this.prisma.client.edfRegion.findMany({ where: { isActive: true } });
+    // Load all regions for auto-matching
+    const allRegions = await this.prisma.client.region.findMany({ where: { isActive: true } });
     let assignedCount = 0;
 
     for (const site of remoteSites) {
-      // Try to match WattzHub region with an EDF region
-      let edfRegionId: string | null = null;
-      if (site.region) {
-        const regionLower = site.region.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const match = edfRegions.find((r) => {
+      // Try to match WattzHub region with a local region
+      let regionId: string | null = null;
+      let regionName: string | null = site.region || null;
+
+      // Fallback: detect region from city or address if WattzHub didn't provide it
+      if (!regionName) {
+        regionName = this.detectRegionFromAddress(site.address, site.city);
+      }
+
+      if (regionName) {
+        const regionLower = regionName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const match = allRegions.find((r) => {
           const codeLower = r.code.toLowerCase();
           const nameLower = r.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return codeLower === regionLower || nameLower === regionLower;
+          return codeLower === regionLower || nameLower === regionLower
+            || nameLower.includes(regionLower) || regionLower.includes(nameLower);
         });
         if (match) {
-          edfRegionId = match.id;
+          regionId = match.id;
           assignedCount++;
         }
       }
@@ -182,13 +273,19 @@ export class CpoConnectionsService {
           externalId: site.id,
           name: site.name,
           address: site.address ?? null,
+          city: site.city ?? null,
+          department: site.department ?? null,
+          cpoRegion: site.region || regionName || null,
           maxCapacityKw: site.maxCapacityKw ?? null,
           currentLimitKw: site.maxCapacityKw ?? null,
-          edfRegionId,
+          regionId,
         },
         update: {
           name: site.name,
           address: site.address ?? null,
+          city: site.city ?? null,
+          department: site.department ?? null,
+          cpoRegion: site.region || regionName || existing?.cpoRegion || null,
           // Only update maxCapacityKw if not already set or if the remote value
           // is higher (to avoid overwriting with a reduced limit set by setSiteAreaLimit)
           ...(existing?.maxCapacityKw
@@ -197,7 +294,7 @@ export class CpoConnectionsService {
               : {})
             : { maxCapacityKw: site.maxCapacityKw ?? null }),
           // Only auto-assign region if not already manually set
-          ...(existing?.edfRegionId ? {} : { edfRegionId }),
+          ...(existing?.regionId ? {} : { regionId }),
         },
       });
     }
@@ -206,7 +303,7 @@ export class CpoConnectionsService {
       data: { lastSyncAt: new Date() },
     });
 
-    this.logger.log(`Synced ${remoteSites.length} sites, auto-assigned ${assignedCount} EDF regions`);
+    this.logger.log(`Synced ${remoteSites.length} sites, auto-assigned ${assignedCount} regions`);
     await this.logs.info('CpoConnection', 'SYNC_SITES', `Synced ${remoteSites.length} sites (${assignedCount} regions auto-assigned)`, {
       connectionId, metadata: { siteCount: remoteSites.length, regionsAssigned: assignedCount },
     });
@@ -285,7 +382,7 @@ export class CpoConnectionsService {
     if (connectionId) where.cpoConnectionId = connectionId;
     return this.prisma.client.chargingStation.findMany({
       where,
-      include: { site: { include: { edfRegion: true } } },
+      include: { site: { include: { region: true } } },
       orderBy: { name: 'asc' },
     });
   }

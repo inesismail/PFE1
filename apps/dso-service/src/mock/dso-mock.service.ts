@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { VALID_TOKENS, PREFIXES, SUFFIXES, CITIES, STREETS, CAPS, TOKEN_REGIONS } from './dso-mock.data';
+import { VALID_TOKENS, PREFIXES, SUFFIXES, CITIES, STREETS, CAPS} from './dso-mock.data';
 
 @Injectable()
 export class DsoMockService {
@@ -24,7 +24,6 @@ export class DsoMockService {
     const cities = this.sample(CITIES, Math.min(count, CITIES.length), rng);
     const sites: any[] = [];
 
-    const regionInfo = TOKEN_REGIONS[token];
 
     for (let i = 0; i < count; i++) {
       const [city, dept] = cities[i];
@@ -36,11 +35,9 @@ export class DsoMockService {
         id: siteId,
         name: `${this.pick(PREFIXES, rng)} ${city} ${this.pick(SUFFIXES, rng)}`,
         address: `${Math.floor(rng() * 99) + 1} ${this.pick(STREETS, rng)}, ${dept}000 ${city}`,
+        city,
         maxCapacity: this.pick(CAPS, rng),
         dsoLabel: VALID_TOKENS[token] || 'Inconnu',
-        regionCode: regionInfo?.code || null,
-        regionName: regionInfo?.name || null,
-        provider: regionInfo?.provider || VALID_TOKENS[token] || 'Inconnu',
       });
     }
     return sites;

@@ -3,14 +3,14 @@ import { IsString, IsNumber, IsBoolean, IsOptional, Min } from 'class-validator'
 export class UpdateSiteDto {
   @IsString() @IsOptional() name?: string;
   @IsString() @IsOptional() address?: string;
-  @IsString() @IsOptional() edfRegionId?: string;
+  @IsString() @IsOptional() regionId?: string;
   @IsNumber() @Min(0) @IsOptional() maxCapacityKw?: number;
   @IsNumber() @Min(0) @IsOptional() reducedLimitKw?: number;
   @IsBoolean() @IsOptional() isActive?: boolean;
 }
 
 export class AssignRegionDto {
-  @IsString() edfRegionId: string;
+  @IsString() regionId: string;
   @IsNumber() @Min(0) @IsOptional() reducedLimitKw?: number;
 }
 

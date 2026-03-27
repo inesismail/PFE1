@@ -24,7 +24,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   }
 
   get cpoConnection() { return this.client.cpoConnection; }
-  get edfRegion() { return this.client.edfRegion; }
+  get region() { return this.client.region; }
   get site() { return this.client.site; }
   get chargingStation() { return this.client.chargingStation; }
 

@@ -36,23 +36,26 @@ model CpoConnection {
   @@map("cpo_connections")
 }
 
-model EdfRegion {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  name        String
-  provider    String   @default("EDF")
-  apiEndpoint String
-  datasetId   String
-  apiKey      String?
-  isActive    Boolean  @default(true)
-  sites       Site[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model Region {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  provider     String   @default("EDF")
+  apiEndpoint  String?
+  datasetId    String?
+  apiKey       String?
+  country      String   @default("France")
+  countryCode  String   @default("FR")
+  isActive     Boolean  @default(true)
+  sites        Site[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([code])
   @@index([isActive])
   @@index([provider])
-  @@map("edf_regions")
+  @@index([countryCode])
+  @@map("regions")
 }
 
 model Site {
@@ -62,8 +65,11 @@ model Site {
   externalId            String
   name                  String
   address               String?
-  edfRegionId           String?
-  edfRegion             EdfRegion?       @relation(fields: [edfRegionId], references: [id])
+  city                  String?
+  department            String?
+  cpoRegion             String?
+  regionId              String?
+  region                Region?          @relation(fields: [regionId], references: [id])
   maxCapacityKw         Float?
   currentLimitKw        Float?
   reducedLimitKw        Float?
@@ -80,7 +86,7 @@ model Site {
 
   @@unique([cpoConnectionId, externalId])
   @@index([cpoConnectionId])
-  @@index([edfRegionId])
+  @@index([regionId])
   @@index([isActive])
   @@map("sites")
 }

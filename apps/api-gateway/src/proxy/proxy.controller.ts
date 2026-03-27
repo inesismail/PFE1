@@ -114,13 +114,13 @@ export class ProxyController {
     return proxySites(req, res, this.onErr(res, 'Sites proxy error'));
   }
 
-  // ---------- EDF-REGIONS (sites-service) ----------
-  @UseGuards(UpstreamHealthGuard) @Upstream('sites') @All('api/edf-regions')
-  edfRoot(@Req() req: Request, @Res() res: Response) {
+  // ---------- REGIONS (sites-service) ----------
+  @UseGuards(UpstreamHealthGuard) @Upstream('sites') @All('api/regions')
+  regionsRoot(@Req() req: Request, @Res() res: Response) {
     return proxySites(req, res, this.onErr(res, 'Sites proxy error'));
   }
-  @UseGuards(UpstreamHealthGuard) @Upstream('sites') @All('api/edf-regions/*path')
-  edf(@Req() req: Request, @Res() res: Response) {
+  @UseGuards(UpstreamHealthGuard) @Upstream('sites') @All('api/regions/*path')
+  regions(@Req() req: Request, @Res() res: Response) {
     return proxySites(req, res, this.onErr(res, 'Sites proxy error'));
   }
 

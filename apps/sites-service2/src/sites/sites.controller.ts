@@ -10,14 +10,14 @@ export class SitesController {
 
   @Get()
   @ApiQuery({ name: 'cpoConnectionId', required: false })
-  @ApiQuery({ name: 'edfRegionId', required: false })
+  @ApiQuery({ name: 'regionId', required: false })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   findAll(
     @Query('cpoConnectionId') cpoConnectionId?: string,
-    @Query('edfRegionId') edfRegionId?: string,
+    @Query('regionId') regionId?: string,
     @Query('isActive') isActive?: string,
   ) {
-    return this.service.findAll(cpoConnectionId, edfRegionId, isActive !== undefined ? isActive === 'true' : undefined);
+    return this.service.findAll(cpoConnectionId, regionId, isActive !== undefined ? isActive === 'true' : undefined);
   }
 
   @Get('by-region/:regionCode')

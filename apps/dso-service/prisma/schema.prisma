@@ -16,6 +16,7 @@ model DsoConnection {
   authPassword String
   tariffUrl    String?
   energyUrl    String?
+  regions      String[]   @default([])
   isActive     Boolean    @default(true)
   lastSyncAt   DateTime?
   siteLinks    SiteLink[]

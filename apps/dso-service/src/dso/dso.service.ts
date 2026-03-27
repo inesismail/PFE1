@@ -3,7 +3,10 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { SitesClient } from '../sites/sites.client';
 import { LogsClient } from '../logs/logs.client';
+import { DsoFactory } from '../providers/dso.factory';
+import { SiteAdapter, CITY_TO_REGION } from '../adapters/site.adapter';
 import { DsoMockService } from '../mock/dso-mock.service';
+import { VALID_TOKENS } from '../mock/dso-mock.data';
 import { CreateDsoConnectionDto } from './dto/create-dso-connection.dto';
 import { CreateSiteLinkDto } from './dto/create-site-link.dto';
 import { CreateEnergySnapshotDto } from './dto/create-energy-snapshot.dto';
@@ -19,7 +22,66 @@ export class DsoService {
     private readonly sitesClient: SitesClient,
     private readonly logsClient: LogsClient,
     private readonly mockService: DsoMockService,
+    private readonly dsoFactory: DsoFactory,
+    private readonly siteAdapter: SiteAdapter,
   ) {}
+
+  // ══════════════════════════════════════════════════════════════════
+  // TYPES DSO DISPONIBLES (pour le formulaire dynamique frontend)
+  // ══════════════════════════════════════════════════════════════════
+
+  getAvailableDsoTypes() {
+    const allRegions = [...new Set(Object.values(CITY_TO_REGION))];
+
+    const mockDsos = Object.entries(VALID_TOKENS)
+      .filter(([token]) => token.startsWith('token-'))
+      .map(([token, label]) => {
+        const sites = this.mockService.generateSites(token, 10);
+        const regions = this.siteAdapter.extractRegions(
+          sites.map(s => ({
+            id: s.id, name: s.name, city: s.city,
+            address: s.address, maxCapacity: s.maxCapacity, dsoLabel: s.dsoLabel,
+          })),
+        );
+        return {
+          token,
+          label,
+          type: 'MOCK' as const,
+          regions,
+          endpoints: {
+            tariffUrl: `http://mock/tariff`,
+            energyUrl: `http://mock/energy`,
+          },
+          fields: {
+            baseUrl: { required: false, default: 'http://mock', hidden: true },
+            authEmail: { required: true },
+            authPassword: { required: false, default: token, hidden: true },
+            tariffUrl: { required: false, default: 'http://mock/tariff', readOnly: true },
+            energyUrl: { required: false, default: 'http://mock/energy', readOnly: true },
+          },
+        };
+      });
+
+    return {
+      allRegions,
+      dsoTypes: [
+        ...mockDsos,
+        {
+          token: null,
+          label: 'DSO personnalisé (API réelle)',
+          type: 'REAL' as const,
+          regions: [],
+          fields: {
+            baseUrl: { required: true },
+            authEmail: { required: true },
+            authPassword: { required: true },
+            tariffUrl: { required: false },
+            energyUrl: { required: false },
+          },
+        },
+      ],
+    };
+  }
 
   // ══════════════════════════════════════════════════════════════════
   // DSO CONNECTIONS
@@ -84,6 +146,7 @@ export class DsoService {
         authPassword: dto.authPassword,
         tariffUrl: dto.tariffUrl || null,
         energyUrl: dto.energyUrl || null,
+        regions: dto.regions || [],
         isActive: true,
       },
     });
@@ -133,6 +196,7 @@ async updateConnection(id: string, dto: Partial<CreateDsoConnectionDto> = {}) {
   if (dto.authPassword !== undefined) data.authPassword = dto.authPassword;
   if (dto.tariffUrl !== undefined) data.tariffUrl = dto.tariffUrl;
   if (dto.energyUrl !== undefined) data.energyUrl = dto.energyUrl;
+  if (dto.regions !== undefined) data.regions = dto.regions;
   if (Object.keys(data).length === 0) return this.getConnectionById(id);
   return this.prisma.client.dsoConnection.update({ where: { id }, data });
 }
@@ -150,33 +214,90 @@ async toggleConnection(id: string, isActive?: boolean) {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // DSO SITES (depuis le mock ou API réelle)
+  // DSO SITES — via Factory (mock, réel ou interne)
   // ══════════════════════════════════════════════════════════════════
 
   async getDsoSites(connectionId: string, count = 3) {
     const conn = await this.getConnectionById(connectionId);
-    const token = conn.authPassword;
+    const provider = this.dsoFactory.createFromConnection(conn);
 
-    // Mock DSO — génère sites en mémoire
-    if (this.mockService.isValidToken(token)) {
-      const sites = this.mockService.generateSites(token, count);
-      return { sites, total: sites.length, source: 'mock' };
-    }
-
-    // API DSO réelle
     try {
-      const resp = await axios.get(`${conn.baseUrl}/sites`, {
-        headers: { 'X-API-TOKEN': token },
-        timeout: 10000,
-      });
-      const data = resp.data;
-      const sites = Array.isArray(data) ? data : data?.sites ?? [];
-      return { sites, total: sites.length, source: 'real' };
+      const sites = await provider.getSites(count);
+      const sitesWithRegions = this.siteAdapter.adaptMany(sites);
+      const regions = [...new Set(sitesWithRegions.map(s => s.region))];
+      const source = this.mockService.isValidToken(conn.authPassword) ? 'mock' : 'real';
+      return { sites: sitesWithRegions, regions, total: sites.length, source };
     } catch (e: any) {
       throw new BadRequestException(
         e?.response?.data?.message || 'Erreur lors de la récupération des sites DSO'
       );
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // COMPATIBILITÉ CPO ↔ DSO (basée sur les régions)
+  // ══════════════════════════════════════════════════════════════════
+
+  async getConnectionRegions(connectionId: string) {
+    const conn = await this.getConnectionById(connectionId);
+    // Si les régions sont stockées en DB, on les utilise directement
+    if (conn.regions && conn.regions.length > 0) return conn.regions;
+    // Sinon fallback sur le calcul dynamique
+    const { regions } = await this.getDsoSites(connectionId, 10);
+    return regions;
+  }
+
+  async getCompatibleConnections(cpoRegions: string[]) {
+    const connections = await this.prisma.client.dsoConnection.findMany({
+      where: { isActive: true },
+    });
+
+    const results = await Promise.all(
+      connections.map(async (conn) => {
+        try {
+          // Utilise les régions stockées en DB si disponibles
+          let dsoRegions: string[] = conn.regions || [];
+          if (dsoRegions.length === 0) {
+            const provider = this.dsoFactory.createFromConnection(conn);
+            const sites = await provider.getSites(10);
+            dsoRegions = this.siteAdapter.extractRegions(sites);
+          }
+          const sharedRegions = cpoRegions.filter(r => dsoRegions.includes(r));
+          return {
+            connectionId: conn.id,
+            label: conn.label,
+            dsoRegions,
+            sharedRegions,
+            isCompatible: sharedRegions.length > 0,
+          };
+        } catch {
+          return {
+            connectionId: conn.id,
+            label: conn.label,
+            dsoRegions: [],
+            sharedRegions: [],
+            isCompatible: false,
+          };
+        }
+      }),
+    );
+
+    return {
+      cpoRegions,
+      connections: results,
+      compatibleCount: results.filter(r => r.isCompatible).length,
+    };
+  }
+
+  async checkCpoCompatibility(connectionId: string, cpoRegions: string[]) {
+    const dsoRegions = await this.getConnectionRegions(connectionId);
+    const sharedRegions = cpoRegions.filter(r => dsoRegions.includes(r));
+    return {
+      isCompatible: sharedRegions.length > 0,
+      sharedRegions,
+      dsoRegions,
+      cpoRegions,
+    };
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -235,25 +356,17 @@ async toggleConnection(id: string, isActive?: boolean) {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // FETCH ENERGY & TARIFF (mock ou réel)
+  // FETCH ENERGY & TARIFF — via Factory (mock ou réel)
   // ══════════════════════════════════════════════════════════════════
 
   async fetchEnergy(connectionId: string, siteId: string) {
     const conn = await this.getConnectionById(connectionId);
-    const token = conn.authPassword;
+    const provider = this.dsoFactory.createFromConnection(conn);
 
-    if (this.mockService.isValidToken(token)) {
-      return { ...this.mockService.generateEnergy(siteId), source: 'mock' };
-    }
-
-    const url = (conn.energyUrl || `${conn.baseUrl}/energy`).replace(/\/+$/, '');
     try {
-      const resp = await axios.get(url, {
-        headers: { 'X-API-TOKEN': token },
-        params: { site_id: siteId },
-        timeout: 5000,
-      });
-      return { ...resp.data, source: 'real' };
+      const data = await provider.getAvailableEnergy(siteId);
+      const source = this.mockService.isValidToken(conn.authPassword) ? 'mock' : 'real';
+      return { ...data, site_id: siteId, source };
     } catch (e: any) {
       throw new BadRequestException(
         e?.response?.data?.message || 'Erreur énergie DSO'
@@ -263,20 +376,12 @@ async toggleConnection(id: string, isActive?: boolean) {
 
   async fetchTariff(connectionId: string, siteId: string) {
     const conn = await this.getConnectionById(connectionId);
-    const token = conn.authPassword;
+    const provider = this.dsoFactory.createFromConnection(conn);
 
-    if (this.mockService.isValidToken(token)) {
-      return { ...this.mockService.generateTariff(siteId), source: 'mock' };
-    }
-
-    const url = (conn.tariffUrl || `${conn.baseUrl}/tariff`).replace(/\/+$/, '');
     try {
-      const resp = await axios.get(url, {
-        headers: { 'X-API-TOKEN': token },
-        params: { site_id: siteId },
-        timeout: 5000,
-      });
-      return { ...resp.data, source: 'real' };
+      const data = await provider.getTariffs(siteId);
+      const source = this.mockService.isValidToken(conn.authPassword) ? 'mock' : 'real';
+      return { ...data, site_id: siteId, source };
     } catch (e: any) {
       throw new BadRequestException(
         e?.response?.data?.message || 'Erreur tarif DSO'

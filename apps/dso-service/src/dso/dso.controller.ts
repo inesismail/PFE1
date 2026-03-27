@@ -27,6 +27,14 @@ export class DsoController {
     return this.dsoService.getDashboard();
   }
 
+  // ── Types DSO disponibles (formulaire dynamique) ───────────────
+
+  @Get('types')
+  @ApiOperation({ summary: 'Types DSO disponibles — alimente la liste déroulante et adapte le formulaire' })
+  getAvailableDsoTypes() {
+    return this.dsoService.getAvailableDsoTypes();
+  }
+
   // ── Connections ───────────────────────────────────────────────────
 
   @Get('connections')
@@ -219,5 +227,27 @@ export class DsoController {
   @ApiOperation({ summary: 'Logs par référence site DSO' })
   getLogsBySite(@Param('dsoSiteRef') ref: string, @Query('limit') limit?: string) {
     return this.dsoService.getOptimizationLogsBySite(ref, limit ? parseInt(limit) : 100);
+  }
+
+  // ── Compatibilité CPO ↔ DSO (régions) ─────────────────────────────
+
+  @Get('connections/compatible')
+  @ApiOperation({ summary: 'DSO compatibles avec un CPO (par régions)' })
+  @ApiQuery({ name: 'regions', required: true, description: 'Régions du CPO séparées par virgule' })
+  getCompatibleConnections(@Query('regions') regions: string) {
+    const cpoRegions = regions.split(',').map(r => r.trim()).filter(Boolean);
+    return this.dsoService.getCompatibleConnections(cpoRegions);
+  }
+
+  @Get('connections/:id/regions')
+  @ApiOperation({ summary: 'Régions couvertes par un DSO' })
+  getConnectionRegions(@Param('id') id: string) {
+    return this.dsoService.getConnectionRegions(id);
+  }
+
+  @Post('connections/:id/check-compatibility')
+  @ApiOperation({ summary: 'Vérifier la compatibilité CPO ↔ DSO' })
+  checkCompatibility(@Param('id') id: string, @Body() body: { cpoRegions: string[] }) {
+    return this.dsoService.checkCpoCompatibility(id, body.cpoRegions);
   }
 }

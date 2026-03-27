@@ -119,8 +119,8 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
         connectionId,
       });
 
-      // Fetch EDF signals for all active regions
-      const regions = await this.prisma.edfRegion.findMany({ where: { isActive: true } });
+      // Fetch signals for all active regions
+      const regions = await this.prisma.region.findMany({ where: { isActive: true } });
       let fetchedCount = 0;
 
       for (const region of regions) {
@@ -143,8 +143,8 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
 
       // Get sites with region assignments
       const sites = await this.prisma.site.findMany({
-        where: { cpoConnectionId: connectionId, edfRegionId: { not: null }, isActive: true },
-        include: { edfRegion: true },
+        where: { cpoConnectionId: connectionId, regionId: { not: null }, isActive: true },
+        include: { region: true },
       });
 
       this.logger.debug(`Found ${sites.length} sites with region assignments`);
@@ -153,7 +153,7 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
       let changedCount = 0;
 
       for (const site of sites) {
-        if (!site.edfRegion) continue;
+        if (!site.region) continue;
         const result = await this.processSiteSignal(site, connectionId);
         processedCount++;
         if (result.changed) changedCount++;
@@ -177,7 +177,7 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
   private static readonly OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
   private async processSiteSignal(site: any, connectionId: string): Promise<{ changed: boolean }> {
-    const regionCode = site.edfRegion.code;
+    const regionCode = site.region.code;
     const previousLimit = site.currentLimitKw;
     const hasValidExternalId = SignalProcessorService.OBJECT_ID_RE.test(site.externalId);
 
@@ -192,7 +192,7 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
             data: { lastLimitSetAt: new Date(), lastSignalAt: new Date() },
           });
           await this.logs.info('SiteLimit', 'MANUAL_OVERRIDE_SKIPPED',
-            `${site.name}: manual override active, skipping EDF signal`,
+            `${site.name}: manual override active, skipping signal`,
             { siteId: site.id, siteName: site.name, metadata: { regionCode, manualLimit } },
           );
           return { changed: false };
@@ -331,14 +331,14 @@ export class SignalProcessorService implements OnModuleInit, OnModuleDestroy {
   async processSingleSite(siteId: string): Promise<{ changed: boolean }> {
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
-      include: { edfRegion: true },
+      include: { region: true },
     });
-    if (!site || !site.edfRegion || !site.cpoConnectionId) return { changed: false };
+    if (!site || !site.region || !site.cpoConnectionId) return { changed: false };
 
     // Fetch fresh signal for the region
-    const signal = await this.fetchEdfSignal(site.edfRegion.apiEndpoint, site.edfRegion.datasetId);
+    const signal = await this.fetchEdfSignal(site.region.apiEndpoint, site.region.datasetId);
     if (signal !== null) {
-      this.signalCache.set(site.edfRegion.code, { signal, fetchedAt: new Date() });
+      this.signalCache.set(site.region.code, { signal, fetchedAt: new Date() });
     }
 
     return this.processSiteSignal(site, site.cpoConnectionId);

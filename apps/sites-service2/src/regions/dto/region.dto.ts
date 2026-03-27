@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsBoolean } from 'class-validator';
 
-export class CreateEdfRegionDto {
+export class CreateRegionDto {
   @IsString() code: string;
   @IsString() name: string;
   @IsString() @IsOptional() provider?: string;
@@ -11,7 +11,7 @@ export class CreateEdfRegionDto {
   @IsString() @IsOptional() countryCode?: string;
 }
 
-export class UpdateEdfRegionDto {
+export class UpdateRegionDto {
   @IsString() @IsOptional() name?: string;
   @IsString() @IsOptional() provider?: string;
   @IsString() @IsOptional() apiEndpoint?: string;

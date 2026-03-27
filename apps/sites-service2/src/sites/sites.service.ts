@@ -16,12 +16,12 @@ export class SitesService {
     private readonly signalProcessor: SignalProcessorService,
   ) {}
 
-  async findAll(cpoConnectionId?: string, edfRegionId?: string, isActive?: boolean) {
+  async findAll(cpoConnectionId?: string, regionId?: string, isActive?: boolean) {
     const where: any = {};
     if (cpoConnectionId) where.cpoConnectionId = cpoConnectionId;
-    if (edfRegionId) where.edfRegionId = edfRegionId;
+    if (regionId) where.regionId = regionId;
     if (isActive !== undefined) where.isActive = isActive;
-    const sites = await this.prisma.client.site.findMany({ where, include: { edfRegion: true, cpoConnection: true }, orderBy: { name: 'asc' } });
+    const sites = await this.prisma.client.site.findMany({ where, include: { region: true, cpoConnection: true }, orderBy: { name: 'asc' } });
 
     // Enrich with actor info and sanitize sensitive fields
     const actorIds = Array.from(new Set<string>(sites.map((s: any) => s.cpoConnection?.actorId).filter(Boolean)));
@@ -40,25 +40,25 @@ export class SitesService {
   }
 
   async findById(id: string) {
-    const site = await this.prisma.client.site.findUnique({ where: { id }, include: { edfRegion: true } });
+    const site = await this.prisma.client.site.findUnique({ where: { id }, include: { region: true } });
     if (!site) throw new NotFoundException(`Site not found: ${id}`);
     return site;
   }
 
   async update(id: string, dto: UpdateSiteDto) {
     await this.findById(id);
-    return this.prisma.client.site.update({ where: { id }, data: dto, include: { edfRegion: true } });
+    return this.prisma.client.site.update({ where: { id }, data: dto, include: { region: true } });
   }
 
   async assignRegion(siteId: string, dto: AssignRegionDto) {
     await this.findById(siteId);
     await this.prisma.client.site.update({
       where: { id: siteId },
-      data: { edfRegionId: dto.edfRegionId, reducedLimitKw: dto.reducedLimitKw },
+      data: { regionId: dto.regionId, reducedLimitKw: dto.reducedLimitKw },
     });
 
     // Fetch + apply signal — never fails the whole request
-    if (dto.edfRegionId) {
+    if (dto.regionId) {
       try {
         await this.signalProcessor.processSingleSite(siteId);
       } catch {
@@ -66,15 +66,15 @@ export class SitesService {
       }
     }
 
-    return this.prisma.client.site.findUnique({ where: { id: siteId }, include: { edfRegion: true } });
+    return this.prisma.client.site.findUnique({ where: { id: siteId }, include: { region: true } });
   }
 
   async unassignRegion(siteId: string) {
     await this.findById(siteId);
     return this.prisma.client.site.update({
       where: { id: siteId },
-      data: { edfRegionId: null, lastSignalValue: null, lastSignalAt: null },
-      include: { edfRegion: true },
+      data: { regionId: null, lastSignalValue: null, lastSignalAt: null },
+      include: { region: true },
     });
   }
 
@@ -96,7 +96,7 @@ export class SitesService {
     const updated = await this.prisma.client.site.update({
       where: { id: siteId },
       data: { currentLimitKw: safeLimit, lastLimitSetAt: new Date() },
-      include: { edfRegion: true },
+      include: { region: true },
     });
     return { site: updated, remoteApplied, remoteError };
   }
@@ -115,7 +115,7 @@ export class SitesService {
     const updated = await this.prisma.client.site.update({
       where: { id: siteId },
       data: { manualOverrideLimitKw: dto.limitKw, manualOverrideUntil: endsAt, manualOverrideReason: dto.reason ?? null, currentLimitKw: dto.limitKw, lastLimitSetAt: new Date() },
-      include: { edfRegion: true },
+      include: { region: true },
     });
     await this.logs.info('SiteLimit', 'MANUAL_OVERRIDE_SET', `Manual override set to ${dto.limitKw} kW`, { siteId: site.id, siteName: site.name });
     return { site: updated, remoteApplied };
@@ -126,7 +126,7 @@ export class SitesService {
     return this.prisma.client.site.update({
       where: { id: siteId },
       data: { manualOverrideLimitKw: null, manualOverrideUntil: null, manualOverrideReason: null },
-      include: { edfRegion: true },
+      include: { region: true },
     });
   }
 
@@ -160,8 +160,8 @@ export class SitesService {
 
   async findByRegion(regionCode: string) {
     return this.prisma.client.site.findMany({
-      where: { edfRegion: { code: regionCode }, isActive: true },
-      include: { edfRegion: true },
+      where: { region: { code: regionCode }, isActive: true },
+      include: { region: true },
     });
   }
 

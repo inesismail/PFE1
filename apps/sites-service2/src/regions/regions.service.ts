@@ -1,54 +1,54 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateEdfRegionDto, UpdateEdfRegionDto } from './dto/edf-region.dto';
+import { CreateRegionDto, UpdateRegionDto } from './dto/region.dto';
 
 @Injectable()
-export class EdfRegionsService {
+export class RegionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.client.edfRegion.findMany({
+    return this.prisma.client.region.findMany({
       include: { _count: { select: { sites: true } } },
       orderBy: { name: 'asc' },
     });
   }
 
   async findById(id: string) {
-    const region = await this.prisma.client.edfRegion.findUnique({ where: { id } });
-    if (!region) throw new NotFoundException(`EDF region not found: ${id}`);
+    const region = await this.prisma.client.region.findUnique({ where: { id } });
+    if (!region) throw new NotFoundException(`Region not found: ${id}`);
     return region;
   }
 
   async findByCode(code: string) {
-    const region = await this.prisma.client.edfRegion.findUnique({ where: { code } });
-    if (!region) throw new NotFoundException(`EDF region not found: ${code}`);
+    const region = await this.prisma.client.region.findUnique({ where: { code } });
+    if (!region) throw new NotFoundException(`Region not found: ${code}`);
     return region;
   }
 
   async findByCountry(countryCode: string) {
-    return this.prisma.client.edfRegion.findMany({
+    return this.prisma.client.region.findMany({
       where: { countryCode },
       include: { _count: { select: { sites: true } } },
       orderBy: { name: 'asc' },
     });
   }
 
-  async create(dto: CreateEdfRegionDto) {
-    const existing = await this.prisma.client.edfRegion.findUnique({ where: { code: dto.code } });
-    if (existing) throw new ConflictException(`EDF region already exists: ${dto.code}`);
-    return this.prisma.client.edfRegion.create({ data: dto });
+  async create(dto: CreateRegionDto) {
+    const existing = await this.prisma.client.region.findUnique({ where: { code: dto.code } });
+    if (existing) throw new ConflictException(`Region already exists: ${dto.code}`);
+    return this.prisma.client.region.create({ data: dto });
   }
 
-  async update(id: string, dto: UpdateEdfRegionDto) {
+  async update(id: string, dto: UpdateRegionDto) {
     await this.findById(id);
-    return this.prisma.client.edfRegion.update({ where: { id }, data: dto });
+    return this.prisma.client.region.update({ where: { id }, data: dto });
   }
 
   async delete(id: string) {
     await this.findById(id);
-    const sitesCount = await this.prisma.client.site.count({ where: { edfRegionId: id } });
+    const sitesCount = await this.prisma.client.site.count({ where: { regionId: id } });
     if (sitesCount > 0) throw new ConflictException(`Cannot delete region with ${sitesCount} sites`);
-    return this.prisma.client.edfRegion.delete({ where: { id } });
+    return this.prisma.client.region.delete({ where: { id } });
   }
 
   async seed() {
@@ -59,7 +59,7 @@ export class EdfRegionsService {
       { code: 'MARTINIQUE', name: 'Martinique', provider: 'EDF', apiEndpoint: 'https://opendata-martinique.edf.fr', datasetId: 'signal-reseau-martinique-recharge-vehicule-electrique' },
       { code: 'GUYANE',     name: 'Guyane',     provider: 'EDF', apiEndpoint: 'https://opendata-guyane.edf.fr',     datasetId: 'signal-reseau-guyane-recharge-vehicule-electrique' },
       { code: 'REUNION',    name: 'La Réunion', provider: 'EDF', apiEndpoint: 'https://opendata-reunion.edf.fr',    datasetId: 'signal-reseau-reunion-recharge-vehicule-electrique' },
-      // Metropolitan French regions
+      // Metropolitan French regions (Enedis / RTE)
       { code: 'ILE_DE_FRANCE',              name: 'Île-de-France',              provider: 'Enedis' },
       { code: 'AUVERGNE_RHONE_ALPES',       name: 'Auvergne-Rhône-Alpes',       provider: 'Enedis' },
       { code: 'PROVENCE_ALPES_COTE_AZUR',   name: "Provence-Alpes-Côte d'Azur", provider: 'Enedis' },
@@ -74,8 +74,8 @@ export class EdfRegionsService {
       { code: 'CENTRE_VAL_DE_LOIRE',        name: 'Centre-Val de Loire',        provider: 'Enedis' },
     ];
     const created: any[] = [];    for (const r of defaults) {
-      const existing = await this.prisma.client.edfRegion.findUnique({ where: { code: r.code } });
-      if (!existing) created.push(await this.prisma.client.edfRegion.create({ data: r }));
+      const existing = await this.prisma.client.region.findUnique({ where: { code: r.code } });
+      if (!existing) created.push(await this.prisma.client.region.create({ data: r }));
     }
     return { seeded: created.length, created };
   }

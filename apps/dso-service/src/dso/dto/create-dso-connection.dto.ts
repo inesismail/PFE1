@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
 
 export class CreateDsoConnectionDto {
   @ApiProperty({ example: 'Enedis Mock', description: 'Nom du DSO' })
@@ -34,4 +34,10 @@ export class CreateDsoConnectionDto {
   @IsString()
   @IsOptional()
   energyUrl?: string;
+
+  @ApiPropertyOptional({ example: ['Auvergne-Rhône-Alpes', 'Grand Est'], description: 'Régions couvertes par ce DSO' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  regions?: string[];
 }
