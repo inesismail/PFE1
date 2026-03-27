@@ -409,10 +409,10 @@ export default function SiteDetailPage() {
                 <Building2 className="w-4 h-4" />
                 ID: {site.externalId}
               </span>
-              {site.edfRegion?.name && (
+              {site.region?.name && (
                 <span className="flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
-                  {site.edfRegion.name}
+                  {site.region.name}
                 </span>
               )}
             </div>

@@ -20,6 +20,8 @@ import {
   PowerOff,
   Link2,
   ShieldCheck,
+  MapPin,
+  ChevronDown,
 } from 'lucide-react';
 import {
   Badge,
@@ -38,6 +40,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 
+type DsoTypeOption = {
+  token: string | null;
+  label: string;
+  type: 'MOCK' | 'REAL';
+  regions: string[];
+  endpoints?: { tariffUrl?: string; energyUrl?: string };
+  fields: Record<string, { required?: boolean; default?: string; hidden?: boolean; readOnly?: boolean }>;
+};
+
 type FormData = {
   label: string;
   baseUrl: string;
@@ -52,6 +63,7 @@ export default function DsoPageContent() {
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editConnection, setEditConnection] = useState<DsoConnection | null>(null);
+  const [selectedDsoType, setSelectedDsoType] = useState<DsoTypeOption | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
     label: '',
@@ -65,6 +77,14 @@ export default function DsoPageContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<{ isValid: boolean; message: string; dsoLabel?: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+
+  // Get available DSO types for the dropdown
+  const { data: dsoTypesData } = useQuery({
+    queryKey: ['dso-types'],
+    queryFn: async () => (await dsoApi.getAvailableDsoTypes()) || { dsoTypes: [], allRegions: [] },
+  });
+  const dsoTypes: DsoTypeOption[] = dsoTypesData?.dsoTypes || [];
 
   // Get all DSO connections
   const { data: connections = [], isLoading, error } = useQuery({
@@ -83,7 +103,37 @@ export default function DsoPageContent() {
     });
     setTestResult(null);
     setEditConnection(null);
+    setSelectedDsoType(null);
+    setSelectedRegions([]);
     setIsTesting(false);
+  };
+
+  const handleDsoTypeChange = (token: string) => {
+    const selected = dsoTypes.find(d => (d.token || '__real__') === token) || null;
+    setSelectedDsoType(selected);
+    setTestResult(null);
+
+    if (selected && selected.type === 'MOCK') {
+      setFormData({
+        label: selected.label,
+        baseUrl: selected.fields.baseUrl?.default || 'http://mock',
+        authEmail: formData.authEmail || 'dso@platform.local',
+        authPassword: selected.fields.authPassword?.default || selected.token || '',
+        tariffUrl: selected.fields.tariffUrl?.default || '',
+        energyUrl: selected.fields.energyUrl?.default || '',
+      });
+      setSelectedRegions(selected.regions || []);
+    } else {
+      setFormData({
+        label: '',
+        baseUrl: '',
+        authEmail: formData.authEmail || 'dso@platform.local',
+        authPassword: '',
+        tariffUrl: '',
+        energyUrl: '',
+      });
+      setSelectedRegions([]);
+    }
   };
 
   const runTestConnection = async () => {
@@ -138,6 +188,7 @@ export default function DsoPageContent() {
         authPassword: data.authPassword,
         tariffUrl: data.tariffUrl || null,
         energyUrl: data.energyUrl || null,
+        regions: selectedRegions,
       } as any),
     onSuccess: () => {
       toast.success('DSO Connection créée avec succès');
@@ -186,6 +237,18 @@ export default function DsoPageContent() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || 'Erreur lors du changement de statut');
+    },
+  });
+
+  // Sync sites from DSO
+  const syncMutation = useMutation({
+    mutationFn: (id: string) => dsoApi.syncSites(id),
+    onSuccess: (data: any) => {
+      toast.success(`Sync terminée : ${data?.createdCount ?? 0}/${data?.sitesCount ?? 0} sites créés`);
+      queryClient.invalidateQueries({ queryKey: ['dso-connections'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Erreur lors de la synchronisation des sites');
     },
   });
 
@@ -239,23 +302,101 @@ export default function DsoPageContent() {
     </Button>
   </DialogTrigger>
 
-  <DialogContent className="w-[95vw] max-w-[520px] max-h-[90vh] p-0 overflow-hidden">
+  <DialogContent className="w-[95vw] max-w-[520px] max-h-[90vh] p-0 overflow-hidden flex flex-col">
 
     {/* HEADER */}
-    <div className="px-6 pt-6 pb-2 border-b">
+    <div className="px-6 pt-6 pb-2 border-b shrink-0">
       <DialogTitle className="text-lg font-semibold text-gray-900 dark:text-white">
         {editConnection ? 'Modifier Connexion DSO' : 'Nouvelle Connexion DSO'}
       </DialogTitle>
       <DialogDescription className="text-sm text-gray-500">
-        Configurez les paramètres de connexion à votre DSO
+        {editConnection
+          ? 'Modifiez les paramètres de connexion'
+          : 'Sélectionnez un DSO puis configurez la connexion'}
       </DialogDescription>
     </div>
 
     {/* FORM */}
-    <form onSubmit={handleSubmit} className="flex flex-col h-full">
+    <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
 
       {/* BODY SCROLL */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+      <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-5">
+
+        {/* DSO TYPE DROPDOWN */}
+        {!editConnection && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              Type de DSO
+            </label>
+            <div className="relative">
+              <select
+                value={selectedDsoType ? (selectedDsoType.token || '__real__') : ''}
+                onChange={(e) => handleDsoTypeChange(e.target.value)}
+                className="w-full h-11 px-4 pr-10 border rounded-xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-white appearance-none cursor-pointer"
+              >
+                <option value="">— Choisir un DSO —</option>
+                <optgroup label="DSO disponibles">
+                  {dsoTypes.filter(d => d.type === 'MOCK').map(d => (
+                    <option key={d.token} value={d.token || ''}>
+                      {d.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Autre">
+                  {dsoTypes.filter(d => d.type === 'REAL').map((d, i) => (
+                    <option key={`real-${i}`} value="__real__">
+                      {d.label}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+        )}
+
+        {/* REGIONS — sélection manuelle */}
+        {selectedDsoType && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5" />
+              Régions couvertes
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(dsoTypesData?.allRegions || []).map((region: string) => {
+                const isSelected = selectedRegions.includes(region);
+                const isSuggested = selectedDsoType.regions.includes(region);
+                return (
+                  <button
+                    key={region}
+                    type="button"
+                    onClick={() => {
+                      setSelectedRegions(prev =>
+                        isSelected ? prev.filter(r => r !== region) : [...prev, region]
+                      );
+                    }}
+                    className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-600'
+                        : isSuggested
+                          ? 'bg-blue-50/50 text-blue-500 border-blue-200 border-dashed dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-800'
+                          : 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-zinc-800 dark:text-gray-400 dark:border-zinc-700'
+                    }`}
+                  >
+                    <MapPin className="h-3 w-3 mr-1" />
+                    {region}
+                    {isSelected && <span className="ml-1">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedRegions.length === 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Sélectionnez au moins une région
+              </p>
+            )}
+          </div>
+        )}
 
         {/* LABEL */}
         <div className="space-y-2">
@@ -268,10 +409,12 @@ export default function DsoPageContent() {
             value={formData.label}
             onChange={(e) => setFormData({ ...formData, label: e.target.value })}
             className="w-full h-11 px-4 border rounded-xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
+            readOnly={!!selectedDsoType && selectedDsoType.type === 'MOCK'}
           />
         </div>
 
-        {/* BASE URL */}
+        {/* BASE URL — visible si REAL ou pas de sélection */}
+        {(!selectedDsoType || selectedDsoType.type === 'REAL' || !selectedDsoType.fields.baseUrl?.hidden) && (
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
             URL de connexion au DSO
@@ -285,26 +428,44 @@ export default function DsoPageContent() {
             className="w-full h-11 px-4 border rounded-xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
           />
         </div>
+        )}
 
-        {/* GRID URLs */}
+        {/* GRID URLs — toujours visible, readOnly si MOCK */}
         <div className="grid grid-cols-2 gap-4">
-          <input
-            type="url"
-            placeholder="Tariff URL"
-            value={formData.tariffUrl}
-            onChange={(e) => setFormData({ ...formData, tariffUrl: e.target.value })}
-            className="h-11 px-4 border rounded-xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
-          />
-          <input
-            type="url"
-            placeholder="Energy URL"
-            value={formData.energyUrl}
-            onChange={(e) => setFormData({ ...formData, energyUrl: e.target.value })}
-            className="h-11 px-4 border rounded-xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
-          />
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Tariff URL</label>
+            <input
+              type="url"
+              placeholder="http://localhost:9999/tariff"
+              value={formData.tariffUrl}
+              onChange={(e) => setFormData({ ...formData, tariffUrl: e.target.value })}
+              readOnly={!!selectedDsoType?.fields.tariffUrl?.readOnly}
+              className={`h-11 w-full px-4 border rounded-xl text-gray-900 dark:text-white ${
+                selectedDsoType?.fields.tariffUrl?.readOnly
+                  ? 'bg-gray-100 dark:bg-zinc-800 cursor-not-allowed'
+                  : 'bg-white dark:bg-zinc-900'
+              }`}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Energy URL</label>
+            <input
+              type="url"
+              placeholder="http://localhost:9999/energy"
+              value={formData.energyUrl}
+              onChange={(e) => setFormData({ ...formData, energyUrl: e.target.value })}
+              readOnly={!!selectedDsoType?.fields.energyUrl?.readOnly}
+              className={`h-11 w-full px-4 border rounded-xl text-gray-900 dark:text-white ${
+                selectedDsoType?.fields.energyUrl?.readOnly
+                  ? 'bg-gray-100 dark:bg-zinc-800 cursor-not-allowed'
+                  : 'bg-white dark:bg-zinc-900'
+              }`}
+            />
+          </div>
         </div>
 
-        {/* TOKEN */}
+        {/* TOKEN — visible si REAL */}
+        {(!selectedDsoType || selectedDsoType.type === 'REAL' || !selectedDsoType.fields.authPassword?.hidden) && (
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
             Token d’authentification
@@ -329,6 +490,7 @@ export default function DsoPageContent() {
             </button>
           </div>
         </div>
+        )}
 
         {/* TEST */}
         <Button
@@ -345,7 +507,7 @@ export default function DsoPageContent() {
       </div>
 
       {/* FOOTER */}
-      <div className="px-6 py-4 border-t flex justify-end gap-3 bg-white dark:bg-zinc-950">
+      <div className="px-6 py-4 border-t flex justify-end gap-3 bg-white dark:bg-zinc-950 shrink-0">
         <Button
           type="button"
           variant="outline"
@@ -491,12 +653,11 @@ export default function DsoPageContent() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        window.location.href = `/dso-connections/${connection.id}/site-links`;
-                      }}
+                      onClick={() => syncMutation.mutate(connection.id)}
+                      disabled={syncMutation.isPending}
                     >
-                      <RefreshCw className="h-4 w-4 mr-1" />
-                      Sync Sites
+                      <RefreshCw className={`h-4 w-4 mr-1 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                      {syncMutation.isPending ? 'Sync...' : 'Sync Sites'}
                     </Button>
 
                     <Button

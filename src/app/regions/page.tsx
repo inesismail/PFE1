@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Header } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
-import { FRANCE_REGIONS } from '@/lib/france-regions';
-import { Search, Globe, MapPin, Building2, Users, Landmark, X, BarChart3, PieChartIcon, TrendingUp } from 'lucide-react';
+import { fetchFranceRegions, type FranceRegion } from '@/lib/france-regions';
+import { Search, Globe, MapPin, Building2, Users, Landmark, X, BarChart3, PieChartIcon, TrendingUp, Loader2 } from 'lucide-react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -18,6 +19,23 @@ import {
   Pie,
   Treemap,
 } from 'recharts';
+
+/* ── Territory constants ── */
+const OUTREMER_CODES = new Set(['01', '02', '03', '04', '06']);
+
+type Territory = 'all' | 'metropole' | 'outremer';
+
+const TERRITORY_TABS: { key: Territory; label: string; emoji: string }[] = [
+  { key: 'all', label: 'Tous les territoires', emoji: '🇫🇷' },
+  { key: 'metropole', label: 'Métropole', emoji: '🇪🇺' },
+  { key: 'outremer', label: 'Outre-mer', emoji: '🌴' },
+];
+
+const TERRITORY_META: Record<Territory, { title: string; desc: string }> = {
+  all:       { title: 'Territoires de France', desc: 'Visualisation des 18 régions administratives — métropole et outre-mer' },
+  metropole: { title: 'France métropolitaine', desc: 'Les 13 régions du territoire européen' },
+  outremer:  { title: 'Outre-mer',             desc: 'Les 5 régions et collectivités ultramarines' },
+};
 
 /* ── Animated counter hook ── */
 function useAnimatedCount(target: number, duration = 1200) {
@@ -74,12 +92,30 @@ const TreemapContent = (props: any) => {
 export default function RegionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [activeTerritory, setActiveTerritory] = useState<Territory>('all');
 
   useEffect(() => setMounted(true), []);
 
+  /* ── Data ── */
+  const { data: allRegions = [], isLoading, isError } = useQuery<FranceRegion[]>({
+    queryKey: ['france-regions'],
+    queryFn: fetchFranceRegions,
+    staleTime: 1000 * 60 * 60,
+  });
+
+  /* ── Territory filtering ── */
+  const territoryRegions = useMemo(() => {
+    if (activeTerritory === 'metropole') return allRegions.filter((r) => !OUTREMER_CODES.has(r.code));
+    if (activeTerritory === 'outremer') return allRegions.filter((r) => OUTREMER_CODES.has(r.code));
+    return allRegions;
+  }, [allRegions, activeTerritory]);
+
+  const metropoleCount = useMemo(() => allRegions.filter((r) => !OUTREMER_CODES.has(r.code)).length, [allRegions]);
+  const outremerCount = useMemo(() => allRegions.filter((r) => OUTREMER_CODES.has(r.code)).length, [allRegions]);
+
   const sortedRegions = useMemo(() => {
-    return [...FRANCE_REGIONS].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
-  }, []);
+    return [...territoryRegions].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }, [territoryRegions]);
 
   const filteredRegions = useMemo(() => {
     if (!searchQuery.trim()) return sortedRegions;
@@ -92,56 +128,163 @@ export default function RegionsPage() {
     );
   }, [searchQuery, sortedRegions]);
 
-  const totalDep = FRANCE_REGIONS.reduce((s, r) => s + r.departements, 0);
-  const animRegions = useAnimatedCount(FRANCE_REGIONS.length);
+  /* For the "all" tab, split filtered into two groups */
+  const metropoleFiltered = useMemo(() => filteredRegions.filter((r) => !OUTREMER_CODES.has(r.code)), [filteredRegions]);
+  const outremerFiltered = useMemo(() => filteredRegions.filter((r) => OUTREMER_CODES.has(r.code)), [filteredRegions]);
+
+  /* ── Stats ── */
+  const totalPop = useMemo(() => {
+    return territoryRegions.reduce((s, r) => {
+      const v = parseFloat(r.population.replace(',', '.'));
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  }, [territoryRegions]);
+
+  const totalDep = territoryRegions.reduce((s, r) => s + r.departements, 0);
+  const animRegions = useAnimatedCount(territoryRegions.length);
   const animDep = useAnimatedCount(totalDep);
 
   /* ── Chart data ── */
   const popBarData = useMemo(() =>
-    [...FRANCE_REGIONS]
+    [...territoryRegions]
       .map((r) => ({
         name: r.nom.length > 14 ? r.nom.slice(0, 12) + '…' : r.nom,
         fullName: r.nom,
         pop: parseFloat(r.population.replace(',', '.')),
         fill: r.color,
       }))
+      .filter((d) => !isNaN(d.pop))
       .sort((a, b) => b.pop - a.pop),
-  []);
+  [territoryRegions]);
 
   const depPieData = useMemo(() =>
-    [...FRANCE_REGIONS]
-      .filter((r) => r.departements >= 4)
+    [...territoryRegions]
+      .filter((r) => r.departements >= (activeTerritory === 'outremer' ? 1 : 4))
       .map((r) => ({ name: r.nom, value: r.departements, color: r.color }))
       .sort((a, b) => b.value - a.value),
-  []);
+  [territoryRegions, activeTerritory]);
 
   const treemapData = useMemo(() =>
-    FRANCE_REGIONS.map((r) => ({
-      name: r.nom.length > 16 ? r.nom.slice(0, 14) + '…' : r.nom,
-      size: parseFloat(r.population.replace(',', '.')),
-      color: r.color,
-    })),
-  []);
+    territoryRegions
+      .filter((r) => parseFloat(r.population.replace(',', '.')) > 0)
+      .map((r) => ({
+        name: r.nom.length > 16 ? r.nom.slice(0, 14) + '…' : r.nom,
+        size: parseFloat(r.population.replace(',', '.')),
+        color: r.color,
+      })),
+  [territoryRegions]);
 
   const top5 = popBarData.slice(0, 5);
+  const meta = TERRITORY_META[activeTerritory];
 
   return (
     <div className="min-h-screen">
       <Header
-        title="Régions de France"
-        description="Visualisation des 18 régions administratives françaises"
+        title={meta.title}
+        description={meta.desc}
       />
 
       <div className="p-6 space-y-8">
+        {/* ══════════ LOADING / ERROR ══════════ */}
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-32 gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Chargement des régions…</p>
+          </div>
+        )}
+        {isError && (
+          <div className="flex flex-col items-center justify-center py-32 gap-4">
+            <div className="h-16 w-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
+              <X className="h-8 w-8 text-destructive" />
+            </div>
+            <p className="text-sm text-muted-foreground">Impossible de charger les régions depuis l'API.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && (<>
+
+        {/* ══════════ TERRITORY TABS ══════════ */}
+        <FadeIn delay={50}>
+          <div className="flex flex-wrap items-center gap-2">
+            {TERRITORY_TABS.map((tab) => {
+              const count = tab.key === 'all' ? allRegions.length : tab.key === 'metropole' ? metropoleCount : outremerCount;
+              const isActive = activeTerritory === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTerritory(tab.key); setSearchQuery(''); }}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]'
+                      : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground hover:border-muted-foreground/30'
+                  }`}
+                >
+                  <span className="text-base">{tab.emoji}</span>
+                  {tab.label}
+                  <Badge variant={isActive ? 'secondary' : 'outline'} className={`text-[10px] px-1.5 ${isActive ? 'bg-primary-foreground/20 text-primary-foreground' : ''}`}>
+                    {count}
+                  </Badge>
+                </button>
+              );
+            })}
+          </div>
+        </FadeIn>
+
+        {/* ══════════ TERRITORY INFO CARD ══════════ */}
+        <FadeIn delay={100}>
+          <Card className="border-l-4 border-l-primary/60 bg-gradient-to-r from-primary/[0.03] to-transparent">
+            <CardContent className="pt-5 pb-4">
+              {activeTerritory === 'all' && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-foreground">🇫🇷 La France est composée de plusieurs territoires</p>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      On distingue la <strong>France métropolitaine</strong> ({metropoleCount} régions en Europe)
+                      {' '}et les territoires d&apos;<strong>outre-mer</strong> ({outremerCount} régions ultramarines : Guadeloupe, Martinique, Guyane, La Réunion, Mayotte).
+                    </p>
+                  </div>
+                  <div className="flex gap-3 shrink-0">
+                    <button onClick={() => setActiveTerritory('metropole')} className="text-center px-4 py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 transition-colors cursor-pointer">
+                      <p className="text-lg font-bold text-blue-600">{metropoleCount}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Métropole</p>
+                    </button>
+                    <button onClick={() => setActiveTerritory('outremer')} className="text-center px-4 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors cursor-pointer">
+                      <p className="text-lg font-bold text-emerald-600">{outremerCount}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Outre-mer</p>
+                    </button>
+                  </div>
+                </div>
+              )}
+              {activeTerritory === 'metropole' && (
+                <div>
+                  <p className="text-sm font-semibold text-foreground">🇪🇺 France métropolitaine</p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Le territoire principal situé en Europe, composé de {metropoleCount} régions administratives.
+                  </p>
+                </div>
+              )}
+              {activeTerritory === 'outremer' && (
+                <div>
+                  <p className="text-sm font-semibold text-foreground">🌴 Territoires d&apos;outre-mer</p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {outremerCount} régions ultramarines : Guadeloupe, Martinique, Guyane, La Réunion et Mayotte.
+                    Ces territoires appartiennent à la France mais sont situés hors de l&apos;Europe.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </FadeIn>
+
         {/* ══════════ HERO STATS ══════════ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: 'Régions', value: animRegions, icon: Globe, color: 'blue', gradient: 'from-blue-600 to-blue-400' },
             { label: 'Départements', value: animDep, icon: Building2, color: 'emerald', gradient: 'from-emerald-600 to-emerald-400' },
-            { label: 'Population', value: '67,8M', icon: Users, color: 'violet', gradient: 'from-violet-600 to-violet-400', isText: true },
+            { label: 'Population', value: `${totalPop.toFixed(1).replace('.', ',')}M`, icon: Users, color: 'violet', gradient: 'from-violet-600 to-violet-400', isText: true },
             { label: 'Chefs-lieux', value: animRegions, icon: Landmark, color: 'amber', gradient: 'from-amber-600 to-amber-400' },
           ].map((stat, i) => (
-            <FadeIn key={stat.label} delay={i * 100}>
+            <FadeIn key={stat.label} delay={150 + i * 100}>
               <Card className={`group hover:shadow-lg transition-all duration-300 border-l-4 border-l-${stat.color}-500`}>
                 <CardContent className="pt-5 pb-4">
                   <div className="flex items-center justify-between">
@@ -162,7 +305,7 @@ export default function RegionsPage() {
         </div>
 
         {/* ══════════ CHARTS ROW ══════════ */}
-        <FadeIn delay={400}>
+        <FadeIn delay={550}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Population Bar Chart */}
             <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
@@ -208,7 +351,7 @@ export default function RegionsPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <PieChartIcon className="h-4 w-4 text-primary" />
                   Départements par région
-                  <span className="text-xs text-muted-foreground font-normal ml-auto">4+ départements</span>
+                  <span className="text-xs text-muted-foreground font-normal ml-auto">{activeTerritory === 'outremer' ? 'toutes les régions' : '4+ départements'}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -271,7 +414,7 @@ export default function RegionsPage() {
         </FadeIn>
 
         {/* ══════════ TREEMAP + TOP 5 ══════════ */}
-        <FadeIn delay={600}>
+        <FadeIn delay={700}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Treemap */}
             <Card className="lg:col-span-2 shadow-md hover:shadow-lg transition-shadow duration-300">
@@ -301,7 +444,7 @@ export default function RegionsPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-primary" />
-                  Top 5 — Population
+                  Top {Math.min(5, top5.length)} — Population
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -333,7 +476,7 @@ export default function RegionsPage() {
         </FadeIn>
 
         {/* ══════════ SEARCH ══════════ */}
-        <FadeIn delay={700}>
+        <FadeIn delay={800}>
           <div className="flex items-center gap-4">
             <div className="relative flex-1 max-w-lg">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/60" />
@@ -354,85 +497,54 @@ export default function RegionsPage() {
               )}
             </div>
             <span className="text-sm text-muted-foreground whitespace-nowrap">
-              {filteredRegions.length} / {FRANCE_REGIONS.length} région(s)
+              {filteredRegions.length} / {territoryRegions.length} région(s)
             </span>
           </div>
         </FadeIn>
 
         {/* ══════════ REGIONS GRID ══════════ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredRegions.map((region, i) => (
-            <FadeIn key={region.code} delay={800 + i * 60} className="h-full">
-              <Card className="group relative overflow-hidden hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 border-0 shadow-md h-full">
-                {/* Gradient top bar */}
-                <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${region.gradient} opacity-90 group-hover:opacity-100 transition-opacity`} />
-
-                {/* Corner glow */}
-                <div
-                  className="absolute -top-16 -right-16 h-40 w-40 rounded-full opacity-[0.06] group-hover:opacity-[0.14] transition-opacity duration-500 blur-xl"
-                  style={{ background: region.color }}
-                />
-
-                <CardContent className="pt-6 pb-5 relative">
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3.5">
-                      <div
-                        className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 group-hover:rotate-3 transition-all duration-300"
-                        style={{ backgroundColor: `${region.color}15` }}
-                      >
-                        <MapPin className="h-5.5 w-5.5" style={{ color: region.color }} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-[15px] text-foreground leading-tight">{region.nom}</h3>
-                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                          <Landmark className="h-3 w-3" />
-                          {region.chefLieu}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="font-mono text-[10px] font-bold px-2 py-0.5 shrink-0">
-                      {region.code}
-                    </Badge>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-muted/30 px-3 py-3 text-center group-hover:bg-muted/50 transition-colors">
-                      <Users className="h-3.5 w-3.5 mx-auto text-muted-foreground mb-1" />
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Population</p>
-                      <p className="text-sm font-bold text-foreground mt-0.5">{region.population}</p>
-                    </div>
-                    <div className="rounded-xl bg-muted/30 px-3 py-3 text-center group-hover:bg-muted/50 transition-colors">
-                      <Building2 className="h-3.5 w-3.5 mx-auto text-muted-foreground mb-1" />
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Départements</p>
-                      <p className="text-sm font-bold text-foreground mt-0.5">{region.departements}</p>
-                    </div>
-                  </div>
-
-                  {/* Population bar */}
-                  <div className="mt-3 pt-3 border-t border-border/50">
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                      <span>Part de la population nationale</span>
-                      <span className="font-semibold" style={{ color: region.color }}>
-                        {((parseFloat(region.population.replace(',', '.')) / 67.8) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-1000 ease-out"
-                        style={{
-                          width: mounted ? `${(parseFloat(region.population.replace(',', '.')) / 67.8) * 100}%` : '0%',
-                          backgroundColor: region.color,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </FadeIn>
-          ))}
-        </div>
+        {activeTerritory === 'all' ? (
+          /* Grouped view: Métropole then Outre-mer */
+          <>
+            {metropoleFiltered.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">🇪🇺</span>
+                  <h2 className="text-lg font-bold text-foreground">France métropolitaine</h2>
+                  <Badge variant="secondary">{metropoleFiltered.length}</Badge>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {metropoleFiltered.map((region, i) => (
+                    <RegionCard key={region.code} region={region} index={i} mounted={mounted} baseDelay={900} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {outremerFiltered.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">🌴</span>
+                  <h2 className="text-lg font-bold text-foreground">Outre-mer</h2>
+                  <Badge variant="secondary">{outremerFiltered.length}</Badge>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {outremerFiltered.map((region, i) => (
+                    <RegionCard key={region.code} region={region} index={i} mounted={mounted} baseDelay={900 + metropoleFiltered.length * 60} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Single territory view */
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredRegions.map((region, i) => (
+              <RegionCard key={region.code} region={region} index={i} mounted={mounted} baseDelay={900} />
+            ))}
+          </div>
+        )}
 
         {/* Empty state */}
         {filteredRegions.length === 0 && (
@@ -451,7 +563,90 @@ export default function RegionsPage() {
             </div>
           </FadeIn>
         )}
+
+        </>)}
       </div>
     </div>
+  );
+}
+
+/* ══════════ REGION CARD COMPONENT ══════════ */
+function RegionCard({ region, index, mounted, baseDelay }: { region: FranceRegion; index: number; mounted: boolean; baseDelay: number }) {
+  const isOutremer = OUTREMER_CODES.has(region.code);
+  return (
+    <FadeIn delay={baseDelay + index * 60} className="h-full">
+      <Card className="group relative overflow-hidden hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 border-0 shadow-md h-full">
+        {/* Gradient top bar */}
+        <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${region.gradient} opacity-90 group-hover:opacity-100 transition-opacity`} />
+
+        {/* Corner glow */}
+        <div
+          className="absolute -top-16 -right-16 h-40 w-40 rounded-full opacity-[0.06] group-hover:opacity-[0.14] transition-opacity duration-500 blur-xl"
+          style={{ background: region.color }}
+        />
+
+        <CardContent className="pt-6 pb-5 relative">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 group-hover:rotate-3 transition-all duration-300"
+                style={{ backgroundColor: `${region.color}15` }}
+              >
+                <MapPin className="h-5 w-5" style={{ color: region.color }} />
+              </div>
+              <div>
+                <h3 className="font-bold text-[15px] text-foreground leading-tight">{region.nom}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                  <Landmark className="h-3 w-3" />
+                  {region.chefLieu}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                {isOutremer ? '🌴 Outre-mer' : '🇪🇺 Métropole'}
+              </Badge>
+              <Badge variant="secondary" className="font-mono text-[10px] font-bold px-2 py-0.5 shrink-0">
+                {region.code}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-muted/30 px-3 py-3 text-center group-hover:bg-muted/50 transition-colors">
+              <Users className="h-3.5 w-3.5 mx-auto text-muted-foreground mb-1" />
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Population</p>
+              <p className="text-sm font-bold text-foreground mt-0.5">{region.population}</p>
+            </div>
+            <div className="rounded-xl bg-muted/30 px-3 py-3 text-center group-hover:bg-muted/50 transition-colors">
+              <Building2 className="h-3.5 w-3.5 mx-auto text-muted-foreground mb-1" />
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Départements</p>
+              <p className="text-sm font-bold text-foreground mt-0.5">{region.departements}</p>
+            </div>
+          </div>
+
+          {/* Population bar */}
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+              <span>Part de la population nationale</span>
+              <span className="font-semibold" style={{ color: region.color }}>
+                {((parseFloat(region.population.replace(',', '.')) / 67.8) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000 ease-out"
+                style={{
+                  width: mounted ? `${(parseFloat(region.population.replace(',', '.')) / 67.8) * 100}%` : '0%',
+                  backgroundColor: region.color,
+                }}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </FadeIn>
   );
 }

@@ -42,7 +42,7 @@ export default function SignalsPage() {
 
   // Queries
   const { data: regions } = useQuery({
-    queryKey: ['edf-regions'],
+    queryKey: ['regions'],
     queryFn: regionsApi.getAll,
   });
 

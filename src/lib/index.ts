@@ -24,7 +24,7 @@ export {
   type PluginMetadata,
   type ActorImplementation,
   type CpoConnection,
-  type EdfRegion,
+  type Region,
   type LocalSite,
   type Signal,
   type ProcessingStatus,

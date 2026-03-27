@@ -82,7 +82,7 @@ export default function SitesPage() {
     queryFn: () => sitesApi.getAll(filterConnection !== 'all' ? filterConnection : undefined),
   });
 
-  const { data: regions }     = useQuery({ queryKey: ['edf-regions'],     queryFn: regionsApi.getAll });
+  const { data: regions }     = useQuery({ queryKey: ['regions'],     queryFn: regionsApi.getAll });
   const { data: connections } = useQuery({ queryKey: ['cpo-connections'], queryFn: cpoApi.getAll });
 
   // Fetch all charging stations to count bornes per site
@@ -217,7 +217,7 @@ export default function SitesPage() {
   });
 
   const openAssignDialog = (site: LocalSite) => {
-    setSelectedSite(site); setSelectedRegionId(site.edfRegion?.id || '');
+    setSelectedSite(site); setSelectedRegionId(site.region?.id || '');
     setReducedLimit(site.reducedLimitKw || 0); setAssignDialogOpen(true);
   };
   const openLimitDialog = (site: LocalSite) => {
@@ -233,13 +233,13 @@ export default function SitesPage() {
 
   const filteredSites = sites?.filter((site) => {
     const matchesSearch = !searchTerm || site.name.toLowerCase().includes(searchTerm.toLowerCase()) || site.address?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRegion = filterRegion === 'all' || (filterRegion === 'unassigned' && !site.edfRegion) || site.edfRegion?.id === filterRegion;
+    const matchesRegion = filterRegion === 'all' || (filterRegion === 'unassigned' && !site.region) || site.region?.id === filterRegion;
     const matchesConnection = filterConnection === 'all' || site.cpoConnection?.id === filterConnection;
     return matchesSearch && matchesRegion && matchesConnection;
   });
 
   const totalSites       = sites?.length || 0;
-  const assignedSites    = sites?.filter((s) => s.edfRegion)?.length || 0;
+  const assignedSites    = sites?.filter((s) => s.region)?.length || 0;
   const activeSites      = sites?.filter((s) => s.isActive)?.length || 0;
 
   return (
@@ -334,12 +334,20 @@ export default function SitesPage() {
                                   <td className="py-3 px-4">
                                     {site.hasEdfPlugin === false
                                       ? <span className="text-xs text-muted-foreground italic">N/A</span>
-                                      : site.edfRegion
-                                        ? <div className="flex items-center gap-1.5">
-                                            <Badge variant="info">{site.edfRegion.name}</Badge>
-                                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{site.edfRegion.provider || 'EDF'}</span>
+                                      : site.region
+                                        ? <div className="flex flex-col gap-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                              <Badge variant="info">{site.region.name}</Badge>
+                                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{site.region.provider || 'EDF'}</span>
+                                            </div>
+                                            {site.city && <span className="text-[11px] text-muted-foreground">{site.city}{site.department ? ` (${site.department})` : ''}</span>}
                                           </div>
-                                        : <Badge variant="warning">Non assigné</Badge>}
+                                        : <div className="flex flex-col gap-0.5">
+                                            {site.cpoRegion
+                                              ? <Badge variant="secondary">{site.cpoRegion}</Badge>
+                                              : <Badge variant="warning">Non assigné</Badge>}
+                                            {site.city && <span className="text-[11px] text-muted-foreground">{site.city}{site.department ? ` (${site.department})` : ''}</span>}
+                                          </div>}
                                   </td>
                                   <td className="py-3 px-4">
                                     {site.lastSignalValue != null
@@ -377,7 +385,7 @@ export default function SitesPage() {
                                     <div className="flex items-center gap-2">
                                       {site.hasEdfPlugin === false
                                         ? <span className="text-xs text-muted-foreground italic">N/A</span>
-                                        : site.edfRegion
+                                        : site.region
                                           ? (<>
                                               <button onClick={() => openAssignDialog(site)} title="Modifier la région" className="h-8 w-8 rounded-full flex items-center justify-center bg-blue-100 text-blue-600 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition-all shadow-sm hover:shadow">
                                                 <MapPin className="h-4 w-4" />
@@ -478,7 +486,7 @@ export default function SitesPage() {
             </Dialog>
 
             <ConfirmDialog open={clearOverrideConfirmOpen} onOpenChange={setClearOverrideConfirmOpen} title="Annuler l'override" description={`Annuler le forçage pour "${selectedSite?.name}" ?`} confirmText="Annuler l'override" cancelText="Non, garder" variant="danger" onConfirm={() => { if (selectedSite) clearOverrideMutation.mutate(selectedSite.id); }} isLoading={clearOverrideMutation.isPending} />
-            <ConfirmDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen} title="Retirer l'assignation de région" description={`Retirer la région ${selectedSite?.edfRegion?.name || ''} du site "${selectedSite?.name}" ?`} confirmText="Retirer" cancelText="Annuler" variant="warning" onConfirm={() => { if (selectedSite) { unassignRegionMutation.mutate(selectedSite.id); setUnassignDialogOpen(false); setSelectedSite(null); } }} isLoading={unassignRegionMutation.isPending} />
+            <ConfirmDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen} title="Retirer l'assignation de région" description={`Retirer la région ${selectedSite?.region?.name || ''} du site "${selectedSite?.name}" ?`} confirmText="Retirer" cancelText="Annuler" variant="warning" onConfirm={() => { if (selectedSite) { unassignRegionMutation.mutate(selectedSite.id); setUnassignDialogOpen(false); setSelectedSite(null); } }} isLoading={unassignRegionMutation.isPending} />
           </>
         )}
 

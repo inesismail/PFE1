@@ -61,8 +61,8 @@ import { formatRelativeTime } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-// EDF Regions configuration with colors
-const EDF_REGIONS: Record<string, { name: string; emoji: string; color: string; chartColor: string }> = {
+// Signal Regions configuration with colors
+const SIGNAL_REGIONS: Record<string, { name: string; emoji: string; color: string; chartColor: string }> = {
   CORSE: { name: 'Corse', emoji: '🏝️', color: 'blue', chartColor: '#3b82f6' },
   GUADELOUPE: { name: 'Guadeloupe', emoji: '🌴', color: 'emerald', chartColor: '#10b981' },
   MARTINIQUE: { name: 'Martinique', emoji: '🌺', color: 'purple', chartColor: '#a855f7' },
@@ -238,13 +238,13 @@ export default function DashboardPage() {
   const totalConnections = connections?.length || 0;
   const activeConnections = connections?.filter((c) => c.isConnected && c.fetchEnabled)?.length || 0;
   const totalSites = sites?.length || 0;
-  const assignedSites = sites?.filter((s) => s.edfRegion)?.length || 0;
+  const assignedSites = sites?.filter((s) => s.region)?.length || 0;
   const totalActors = actors?.length || 0;
   const activeActors = actors?.filter((a: Actor) => a.actorImplementations?.some((i) => i.isEnabled))?.length || 0;
 
   const signalValues = latestSignals ? Object.values(latestSignals).filter((s) => s !== null) : [];
   const favorableSignals = signalValues.filter((s) => s?.value === 1).length;
-  const totalRegions = Object.keys(EDF_REGIONS).length;
+  const totalRegions = Object.keys(SIGNAL_REGIONS).length;
   const unfavorableSignals = signalValues.length - favorableSignals;
   const noDataSignals = totalRegions - signalValues.length;
 
@@ -263,7 +263,7 @@ export default function DashboardPage() {
   ].filter(d => d.value > 0), [favorableSignals, unfavorableSignals, noDataSignals]);
 
   const regionSignalBarData = useMemo(() =>
-    Object.entries(EDF_REGIONS).map(([key, region]) => {
+    Object.entries(SIGNAL_REGIONS).map(([key, region]) => {
       const signal = latestSignals?.[key];
       return {
         name: region.name,
@@ -568,7 +568,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="p-4 md:p-6">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
-                {Object.entries(EDF_REGIONS).map(([key, region]) => (
+                {Object.entries(SIGNAL_REGIONS).map(([key, region]) => (
                   <SignalCard
                     key={key}
                     region={region}

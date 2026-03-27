@@ -13,6 +13,7 @@ import type {
   SiteLink,
 } from '@/lib/api';
 import { actorsApi, sitesApi, dsoApi } from '@/lib/api';
+import { fetchFranceRegions, type FranceRegion } from '@/lib/france-regions';
 
 import {
   Badge,
@@ -36,6 +37,8 @@ import {
 import {
   Box,
   Building2,
+  Check,
+  ChevronDown,
   ChevronRight,
   DollarSign,
   Edit2,
@@ -59,7 +62,10 @@ import {
   Search,
   Layers,
   Activity,
+  Landmark,
+  X,
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { Header } from '@/components/layout';
 
@@ -82,6 +88,141 @@ const ACTOR_TYPE_CONFIG: Record<string, { icon: React.ElementType; gradient: str
 
 const DEFAULT_TYPE_CONFIG = { icon: Box, gradient: 'from-gray-500 to-gray-600', badgeClass: 'bg-muted text-muted-foreground', bgClass: 'bg-muted', emoji: '📦' };
 
+/* ── Region Combobox ── */
+function RegionCombobox({
+  regions,
+  value,
+  onChange,
+}: {
+  regions: FranceRegion[];
+  value: string;
+  onChange: (code: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const sorted = useMemo(
+    () => [...regions].sort((a, b) => a.nom.localeCompare(b.nom, 'fr')),
+    [regions],
+  );
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return sorted;
+    const q = search.toLowerCase();
+    return sorted.filter(
+      (r) =>
+        r.nom.toLowerCase().includes(q) ||
+        r.chefLieu.toLowerCase().includes(q) ||
+        r.code.includes(q),
+    );
+  }, [search, sorted]);
+
+  const selected = regions.find((r) => r.code === value);
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium text-foreground">Région</label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] h-9"
+          >
+            {selected ? (
+              <span className="flex items-center gap-2 truncate">
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: selected.color }}
+                />
+                <span className="truncate">{selected.nom}</span>
+                <span className="text-muted-foreground text-xs">— {selected.chefLieu}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Sélectionner une région…</span>
+            )}
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+          align="start"
+          sideOffset={4}
+        >
+          {/* Search */}
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              placeholder="Rechercher une région…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="h-4 w-4 rounded-full hover:bg-muted flex items-center justify-center">
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+          </div>
+
+          {/* Options */}
+          <div className="max-h-[280px] overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                Aucune région trouvée
+              </div>
+            ) : (
+              filtered.map((region) => {
+                const isSelected = region.code === value;
+                return (
+                  <button
+                    key={region.code}
+                    type="button"
+                    onClick={() => {
+                      onChange(isSelected ? '' : region.code);
+                      setOpen(false);
+                      setSearch('');
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-accent ${
+                      isSelected ? 'bg-accent/70' : ''
+                    }`}
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full shrink-0 ring-1 ring-black/10"
+                      style={{ backgroundColor: region.color }}
+                    />
+                    <div className="flex-1 text-left min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium truncate">{region.nom}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                          {region.code}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        <span className="flex items-center gap-1">
+                          <Landmark className="h-3 w-3" />
+                          {region.chefLieu}
+                        </span>
+                        <span>·</span>
+                        <span>{region.population} hab.</span>
+                        <span>·</span>
+                        <span>{region.departements} dép.</span>
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <Check className="h-4 w-4 shrink-0 text-primary" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function getTypeConfig(code: string) {
   return ACTOR_TYPE_CONFIG[code] || DEFAULT_TYPE_CONFIG;
 }
@@ -100,6 +241,7 @@ export default function ActorsPage() {
     actorTypeId: '',
     code: '',
     name: '',
+    region: '',
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,6 +257,12 @@ export default function ActorsPage() {
   const { data: actorTypes = [] } = useQuery<any[]>({
     queryKey: ['actor-types'],
     queryFn: async () => unwrap<any[]>(await actorsApi.getTypes()) ?? [],
+  });
+
+  const { data: regions = [] } = useQuery<FranceRegion[]>({
+    queryKey: ['france-regions'],
+    queryFn: fetchFranceRegions,
+    staleTime: 1000 * 60 * 60,
   });
 
   const { data: actors = [], isLoading } = useQuery<Actor[]>({
@@ -238,12 +386,19 @@ export default function ActorsPage() {
   // -----------------------
 
   const resetForm = () => {
-    setFormData({ actorTypeId: '', code: '', name: '' });
+    setFormData({ actorTypeId: '', code: '', name: '', region: '' });
     setEditingActor(null);
   };
 
   const createActorMutation = useMutation({
-    mutationFn: actorsApi.create,
+    mutationFn: async (data: { actorTypeId: string; code: string; name: string; region: string }) => {
+      const result = await actorsApi.create(data);
+      const actor = unwrap<Actor>(result);
+      if (data.region && actor?.id) {
+        await actorsApi.update(actor.id, { config: { region: data.region } } as Partial<Actor>);
+      }
+      return actor;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['actors'] });
       setShowForm(false);
@@ -363,6 +518,7 @@ export default function ActorsPage() {
       actorTypeId: actor.actorType?.id || '',
       code: actor.code,
       name: actor.name,
+      region: (actor as any).region || '',
     });
   };
 
@@ -510,6 +666,11 @@ export default function ActorsPage() {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
+              <RegionCombobox
+                regions={regions}
+                value={formData.region}
+                onChange={(code) => setFormData({ ...formData, region: code })}
+              />
             </CardContent>
             <CardFooter className="flex gap-2">
               <Button
@@ -596,6 +757,8 @@ export default function ActorsPage() {
                       const implCount = actor.actorImplementations?.length || 0;
                       const activeImpls = actor.actorImplementations?.filter((i) => i.isEnabled).length || 0;
                       const hasEdfSignal = Boolean((actor.config as Record<string, unknown>)?.edfSignalEnabled);
+                      const actorRegionCode = (actor.config as Record<string, unknown>)?.region as string | undefined;
+                      const actorRegion = actorRegionCode ? regions.find((r) => r.code === actorRegionCode) : null;
 
                       return (
                         <Card
@@ -634,6 +797,19 @@ export default function ActorsPage() {
                               <Badge variant={actor.isActive ? 'success' : 'warning'} className="text-xs">
                                 {actor.isActive ? 'Actif' : 'Inactif'}
                               </Badge>
+                              {actorRegion && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs gap-1.5 pr-2.5"
+                                  style={{ borderColor: `${actorRegion.color}40`, backgroundColor: `${actorRegion.color}08` }}
+                                >
+                                  <span
+                                    className="h-2 w-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: actorRegion.color }}
+                                  />
+                                  <span style={{ color: actorRegion.color }}>{actorRegion.nom}</span>
+                                </Badge>
+                              )}
                               {hasEdfSignal && (
                                 <Badge className="text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
                                   <Radio className="h-3 w-3 mr-1" />

@@ -201,14 +201,17 @@ export interface CpoConnection {
   actor: Actor;
 }
 
-export interface EdfRegion {
+export interface Region {
   id: string;
   code: string;
   name: string;
   provider: string;
-  apiEndpoint: string;
-  datasetId: string;
+  apiEndpoint?: string;
+  datasetId?: string;
+  country?: string;
+  countryCode?: string;
   isActive: boolean;
+  createdAt?: string;
   _count?: {
     sites: number;
   };
@@ -219,6 +222,9 @@ export interface LocalSite {
   externalId: string;
   name: string;
   address?: string;
+  city?: string;
+  department?: string;
+  cpoRegion?: string;
   maxCapacityKw?: number;
   currentLimitKw?: number;
   reducedLimitKw?: number;
@@ -226,7 +232,7 @@ export interface LocalSite {
   lastSignalValue?: number;
   lastSignalAt?: string;
   lastLimitSetAt?: string;
-  edfRegion?: EdfRegion;
+  region?: Region;
   cpoConnection: CpoConnection;
   latestSignal?: Signal;
   hasEdfPlugin?: boolean;
@@ -380,7 +386,7 @@ export const actorsApi = {
 
   getById: (id: string) => apiClient.get<Actor>(`/actors/${id}`),
 
-  create: (data: { actorTypeId: string; code: string; name: string }) =>
+  create: (data: { actorTypeId: string; code: string; name: string; region?: string }) =>
     apiClient.post<Actor>('/actors', data),
 
   update: (id: string, data: Partial<Actor>) =>
@@ -455,8 +461,8 @@ export const sitesApi = {
 
   update: (id: string, data: Partial<LocalSite>) => apiClient.patch<LocalSite>(`/sites/${id}`, data),
 
-  assignRegion: (id: string, edfRegionId: string, reducedLimitKw?: number) =>
-    apiClient.post(`/sites/${id}/assign-region`, { edfRegionId, reducedLimitKw }),
+  assignRegion: (id: string, regionId: string, reducedLimitKw?: number) =>
+    apiClient.post(`/sites/${id}/assign-region`, { regionId, reducedLimitKw }),
 
   unassignRegion: (id: string) => apiClient.post(`/sites/${id}/unassign-region`),
 
@@ -479,19 +485,21 @@ export const sitesApi = {
 // ============================================================================
 
 export const regionsApi = {
-  getAll: () => apiClient.get<EdfRegion[]>('/edf-regions'),
+  getAll: () => apiClient.get<Region[]>('/regions'),
 
-  getById: (id: string) => apiClient.get<EdfRegion>(`/edf-regions/${id}`),
+  getById: (id: string) => apiClient.get<Region>(`/regions/${id}`),
 
-  create: (data: { code: string; name: string; provider?: string; apiEndpoint: string; datasetId: string }) =>
-    apiClient.post<EdfRegion>('/edf-regions', data),
+  getByCountry: (countryCode: string) => apiClient.get<Region[]>(`/regions/by-country/${countryCode}`),
 
-  update: (id: string, data: Partial<EdfRegion>) =>
-    apiClient.put<EdfRegion>(`/edf-regions/${id}`, data),
+  create: (data: { code: string; name: string; provider?: string; apiEndpoint?: string; datasetId?: string; country?: string; countryCode?: string }) =>
+    apiClient.post<Region>('/regions', data),
 
-  delete: (id: string) => apiClient.delete(`/edf-regions/${id}`),
+  update: (id: string, data: Partial<Region>) =>
+    apiClient.put<Region>(`/regions/${id}`, data),
 
-  seed: () => apiClient.post('/edf-regions/seed'),
+  delete: (id: string) => apiClient.delete(`/regions/${id}`),
+
+  seed: () => apiClient.post('/regions/seed'),
 };
 
 // ============================================================================
@@ -808,6 +816,9 @@ export const companiesApi = {
 // ============================================================================
 
 export const dsoApi = {
+  // DSO types (pour le formulaire dynamique)
+  getAvailableDsoTypes: () => apiClient.get<any>('/dso/types'),
+
   // DSO Connection endpoints
   getConnections: () => apiClient.get<DsoConnection[]>('/dso/connections'),
 
